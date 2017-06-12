@@ -1,0 +1,6 @@
+requests
+asyncio
+aiohttp
+autobahn
+pp-ez
+numpy
