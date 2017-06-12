@@ -1,11 +1,12 @@
 import inspect
 from datetime import datetime, timedelta
 
-import constants
-from api.base import command_operator, BasePublicApi, BaseTradingApi
-from error import PoloniexError
-from logger import getLogger
-from wamp.client import WAMPClient
+
+from .base import command_operator, BasePublicApi, BaseTradingApi
+from ..error import PoloniexError
+from ..logger import getLogger
+from ..wamp.client import WAMPClient
+from .. import constants
 
 __author__ = "andrew.shvv@gmail.com"
 

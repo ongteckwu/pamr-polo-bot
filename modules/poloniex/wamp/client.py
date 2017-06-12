@@ -4,7 +4,7 @@ from autobahn.wamp import message
 from autobahn.wamp.role import DEFAULT_CLIENT_ROLES
 from autobahn.wamp.serializer import JsonSerializer
 
-from logger import getLogger
+from ..logger import getLogger
 
 __author__ = 'andrew.shvv@gmail.com'
 

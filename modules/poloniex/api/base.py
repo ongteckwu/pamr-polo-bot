@@ -4,10 +4,10 @@ import time
 import urllib
 from inspect import signature, iscoroutinefunction
 
-import constants
-from error import PoloniexError, AddressAlreadyExist
-from logger import getLogger
-from utils import switch
+from .. import constants
+from ..error import PoloniexError, AddressAlreadyExist
+from ..logger import getLogger
+from ..utils import switch
 
 __author__ = "andrew.shvv@gmail.com"
 

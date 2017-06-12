@@ -4,9 +4,9 @@ import sys
 
 import aiohttp
 
-from api import async, sync
-from error import PoloniexError
-from logger import getLogger
+from .api import async, sync
+from .error import PoloniexError
+from .logger import getLogger
 
 __author__ = 'andrew.shvv@gmail.com'
 

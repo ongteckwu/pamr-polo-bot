@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import requests
 
-from api.base import command_operator, BasePublicApi, BaseTradingApi
+from ..api.base import command_operator, BasePublicApi, BaseTradingApi
 
 __author__ = 'andrew.shvv@gmail.com'
 
