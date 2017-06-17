@@ -2,6 +2,7 @@ import poloniex
 import pandas as pd
 import logging
 import asyncio
+import sys
 
 from time import time, sleep
 from pandas import DataFrame
@@ -9,10 +10,16 @@ from PAMR import PAMR
 from utilities import cleanNANs
 from Portfolio import Portfolio, ReconfigureEvent
 
-logging.basicConfig(level=logging.DEBUG)
+log = logging.getLogger(__name__)
+logPortfolio = logging.getLogger(Portfolio.__name__)
+handler = logging.StreamHandler(sys.stderr)
+handler.setLevel(logging.DEBUG)
+log.addHandler(handler)
+logPortfolio.addHandler(handler)
+
 # GET ALL PAIRS
-API_KEY = "8N0DP32H-UDZX8K7F-Q70NU866-BD501GE0"
-SECRET = "3fb6648662e40e9bda1d12c0b1e98236e7a7974630450a02a9a3c82c50dea15545d52cb84e6ec3fe8ef6d4d7894735766c8dd26ec6a6955d6ed541120cfaab9c"
+API_KEY = "apple"
+SECRET = "pear"
 CHECK_PERIOD = 60  # check every minute
 LAST_CHECK_DATE = time() - CHECK_PERIOD
 LATEST_DATE = None
@@ -84,11 +91,11 @@ async def main():
 
             LAST_CHECK_DATE = time()
 
-            print("Sleeping for {} seconds...".format(CHECK_PERIOD))
+            print("Data update loop sleeping for {} seconds...".format(CHECK_PERIOD))
             await asyncio.sleep(CHECK_PERIOD)
     except asyncio.CancelledError:
         # LOG
-        logging.debug(
+        log.debug(
             ">> Coroutine: main cancelled")
 
 if __name__ == "__main__":
@@ -118,7 +125,6 @@ if __name__ == "__main__":
         data.to_csv("poloTestData.csv")
     # GET LATEST DATE
     data = pd.read_csv("./poloTestData.csv")
-    print(data)
     LATEST_DATE = data["date"].iloc[-1]
 
     # removes index and data column and removes NANs
@@ -128,8 +134,7 @@ if __name__ == "__main__":
     weights = pamr.train()
     print(weights)
     pairsWeights = pairsToWeights(allPairs, weights)
-    portfolio = Portfolio(p, initialAmount=INITIAL_AMOUNT,
-                          initialPairsWeights=pairsWeights)
+    portfolio = Portfolio(p, initialPairsWeights=pairsWeights)
     loop = asyncio.get_event_loop()
 
     loop.create_task(main())
