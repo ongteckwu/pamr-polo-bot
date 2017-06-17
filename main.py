@@ -24,7 +24,6 @@ CHECK_PERIOD = 60  # check every minute
 LAST_CHECK_DATE = time() - CHECK_PERIOD
 LATEST_DATE = None
 CHART_PERIOD = 7200
-INITIAL_AMOUNT = 0.03
 
 
 def pairsToWeights(pairs, weights):

@@ -128,10 +128,10 @@ class Portfolio(object):
 
                         # cancel all current buy and sell routines
                         with self.cancelLock:
-                            with buyLock:
+                            with self.buyLock:
                                 await self.__cancelTasks(self.buyTasks)
                                 self.buyTasks = []
-                            with sellLock:
+                            with self.sellLock:
                                 await self.__cancelTasks(self.sellTasks)
                                 self.sellTasks = []
 
