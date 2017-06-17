@@ -1,2 +1,5 @@
-test.py
+test*.py
 altbot-venv/
+asynctest*.py
+__pycache__/
+.DS_Store

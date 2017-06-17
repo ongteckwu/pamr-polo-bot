@@ -4,3 +4,9 @@ aiohttp
 autobahn
 pp-ez
 numpy
+twisted
+scipy
+pandas_datareader
+statsmodels
+scikit-learn
+cvxopt
