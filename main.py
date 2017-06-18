@@ -19,11 +19,11 @@ logPortfolio.addHandler(handler)
 
 # GET ALL PAIRS
 API_KEY = "apple"
-SECRET = "pear"
+SECRET = "3fb6648662e40e9bda1d12c0"
 CHECK_PERIOD = 60  # check every minute
 LAST_CHECK_DATE = time() - CHECK_PERIOD
 LATEST_DATE = None
-CHART_PERIOD = 7200
+CHART_PERIOD = 14400
 
 
 def pairsToWeights(pairs, weights):
@@ -76,6 +76,7 @@ async def main():
                             newDataTemp.set_index('date'), on="date")
 
                 if hasAllNewData:
+                    logging.debug("New data arrived")
                     # update data
                     data.append(newData)
                     ratios = data.iloc[-1][2:] / data.iloc[-2][2:]
@@ -90,7 +91,7 @@ async def main():
 
             LAST_CHECK_DATE = time()
 
-            print("Data update loop sleeping for {} seconds...".format(CHECK_PERIOD))
+            # print("Data update loop sleeping for {} seconds...".format(CHECK_PERIOD))
             await asyncio.sleep(CHECK_PERIOD)
     except asyncio.CancelledError:
         # LOG

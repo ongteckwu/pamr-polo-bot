@@ -14,7 +14,7 @@ p = poloniex.Poloniex()
 CHECK_PERIOD = p.MINUTE  # check every minute
 LAST_CHECK_DATE = time() - CHECK_PERIOD
 LATEST_DATE = None
-CHART_PERIOD = 7200
+CHART_PERIOD = 14400
 LAST_TRADE_PERIOD = None
 INITIAL_AMOUNT = 1.00
 

@@ -62,9 +62,9 @@ class Portfolio(object):
 
         self.buySellRetryTimes = 10
 
-        # the more sell coroutines there are, the slower the buy coroutines retry duration
+        # the more sell coroutines there are, the slower the buy coroutines
+        # retry duration
         self.buyRetryDuration = 1.0
-
 
         self.mainLoop = asyncio.get_event_loop()
         self.buyTasks = []
@@ -108,7 +108,7 @@ class Portfolio(object):
                 try:
                     event = self.eventQueue.get_nowait()
                 except Empty:
-                    log.debug("Main event loop sleeping for {} seconds...".format(sleepTime))
+                    # log.debug("Main event loop sleeping for {} seconds...".format(sleepTime))
                     await asyncio.sleep(sleepTime)
                     continue
 
@@ -143,7 +143,7 @@ class Portfolio(object):
                     while True:
                         balances = self.polo.returnCompleteBalances()
                         if "error" in balances:
-                            log.debug(
+                            log.info(
                                 "Error in _eventRun: can't obtain complete balances")
                         else:
                             break
@@ -173,7 +173,7 @@ class Portfolio(object):
                     pairAmountDifference = Portfolio.getPairAmountDifference(
                         currentPairAmount, previousPairAmount)
                     log.debug("Pair amount difference {}:".format(
-                        pairAmountDifference))
+                        {k: pairAmountDifference[k] for k in pairAmountDifference if pairAmountDifference[k] != 0.0}))
 
                     # buy or sell base on amount differences
                     buyPairs = {}
@@ -185,7 +185,7 @@ class Portfolio(object):
                             sellPairs[pair] = -diff
                     self.mainLoop.create_task(self.__sellAllPairs(sellPairs))
                     self.mainLoop.create_task(self.__buyAllPairs(buyPairs))
-                    
+
         except asyncio.CancelledError:
             # LOG
             log.debug(
@@ -266,14 +266,22 @@ class Portfolio(object):
         # returns prices to order at and weights
         # [(price, weight),...]
         ordersToPut = []
-        # buy if orderType==0, sell if orderType==1
         # (priceToBid, weight)
-        # (priceToBid, weight)
-        ordersToPut.append((orderBook[3][0] * 1.001, 0.3))
-        # (priceToBid, weight)
-        ordersToPut.append((orderBook[5][0] * 1.001, 0.4))
-        # (priceToBid, weight)
-        ordersToPut.append((orderBook[8][0] * 1.001, 0.3))
+        if orderType == "buy":
+            ordersToPut.append((orderBook[1][0] * 1.001, 0.1))
+            ordersToPut.append((orderBook[2][0] * 1.001, 0.1))
+            ordersToPut.append((orderBook[2][0] * 0.999, 0.25))
+            ordersToPut.append((orderBook[2][0] * 1.998, 0.25))
+            ordersToPut.append((orderBook[3][0] * 1.00, 0.1))
+            ordersToPut.append((orderBook[3][0] * 0.999, 0.1))
+            ordersToPut.append((orderBook[3][0] * 0.998, 0.1))
+        if orderType == "sell":
+            ordersToPut.append((orderBook[1][0] * 0.997, 0.2))
+            ordersToPut.append((orderBook[1][0] * 0.998, 0.2))
+            ordersToPut.append((orderBook[1][0] * 0.999, 0.2))
+            ordersToPut.append((orderBook[2][0] * 0.998, 0.2))
+            ordersToPut.append((orderBook[2][0] * 0.999, 0.2))
+            # (priceToBid, weight)
         assert(sum([pair[1] for pair in ordersToPut]) == 1.0,
                "Weights on determinePrices do not sum up to 1")
         return ordersToPut
@@ -281,7 +289,7 @@ class Portfolio(object):
     async def __cancelOrder(self, pair, orderType="all", withYield=True):
         # cancels all orders for a given pair
         # and returns amount on open orders
-        amountOnOpenOrders = 0
+        numberOfOpenOrders = 0
         while True:
             openOrders = self.polo.returnOpenOrders(pair)
             if "error" in openOrders:
@@ -301,7 +309,7 @@ class Portfolio(object):
                     continue
 
             orderNo = order["orderNumber"]
-            amountOnOpenOrders += float(order["total"])
+            numberOfOpenOrders += 1
             retry = True
             while retry != False:
                 retry = False
@@ -309,20 +317,20 @@ class Portfolio(object):
                     cancellationMessage = self.polo.cancelOrder(orderNo)
                     if cancellationMessage["success"] != 1 or "error" in cancellationMessage:
                         retry = True
-                        log.debug(
+                        log.info(
                             "Cancellation of order for {} failed".format(pair))
                         if withYield:
                             await asyncio.sleep(1.0)
                         continue
-                    log.debug(
+                    log.info(
                         "Cancellation of order for {} successful".format(pair))
                 except Exception:
                     retry = True
-                    log.debug(
+                    log.info(
                         "Cancellation of order for {} failed".format(pair))
                     if withYield:
                         await asyncio.sleep(1.0)
-        return amountOnOpenOrders
+        return numberOfOpenOrders
 
     async def __sellCoroutine(self, pair, amountToSell):
         amountLeftToOrder = amountToSell
@@ -334,16 +342,26 @@ class Portfolio(object):
             self.buyRetryDuration *= 2
 
         try:
-            # if retry times more than N, break coroutine
-            retryTimes = 0
-            while (amountLeftToOrder >= amountToSell * 0.03) and retryTimes < self.buySellRetryTimes:
+            while True:
                 # {"asks":[[0.00007600,1164],[0.00007620,1300], ... ],
                 #  "bids":[[0.00006901,200],[0.00006900,408], ... ], "isFrozen": 0, "seq": 18849}
                 orderBook = list(map(lambda tup: tuple(
                     map(float, tup)), self.polo.returnOrderBook(pair, depth=100)["asks"]))
-                # determine prices in the specific altcoin
-                pricesAndAmount = [(price, (weight * amountLeftToOrder * 0.99) / price)
-                                   for (price, weight) in Portfolio.determinePrices(orderBook, "sell")]
+
+                # determine price and corresponding amount to order
+                # if the value put on order < 0.0001, stack the order with the
+                # next
+                actualWeight = 0
+                pricesAndAmount = []
+                for (price, weight) in Portfolio.determinePrices(orderBook, "sell"):
+                    # if total < 0.0001, stack the pair with the next
+                    actualWeight += weight
+                    total = actualWeight * amountLeftToOrder * 0.99
+                    if total > 0.0001:
+                        pricesAndAmount.append((price, total / price))
+                        # reset actualWeight for the next pair
+                        actualWeight = 0
+
                 for (price, amt) in pricesAndAmount:
                     retry = True
                     # place bids
@@ -351,22 +369,23 @@ class Portfolio(object):
                         retry = False
                         try:
                             # {"orderNumber":31226040,"resultingTrades":[{"amount":"338.8732","date":"2014-10-18 23:03:21","rate":"0.00000173","total":"0.00058625","tradeID":"16164","type":"buy"}]}
-                            order = self.polo.sell(pair, price, amt, orderType='postOnly')
+                            order = self.polo.sell(
+                                pair, price, amt)
                             if "error" in order:
-                                retryTimes += 1
-                                log.debug(
+                                log.info(
                                     "Error: {}".format(order["error"]))
-                                log.debug(
+                                log.info(
                                     "Retrying sell bidding for {}: price {} amt {}".format(pair, price, amt))
                                 retry = True
                                 await asyncio.sleep(1.0)
                                 continue
                             else:
-                                log.debug(
+                                log.info(
                                     "Sell order placed for {}".format(pair))
-                        except RequestException:
-                            retryTimes += 1
-                            log.debug(
+                        except Exception as e:
+                            log.info(e)
+                            amt = amt * 0.95
+                            log.info(
                                 "Retrying sell bidding for {}: price {} amt {}".format(pair, price, amt))
                             retry = True
                             await asyncio.sleep(1.0)
@@ -377,9 +396,13 @@ class Portfolio(object):
 
                 # cancel all orders and
                 # update amountLeftToOrder
-                amountLeftToOrder = await self.__cancelOrder(pair, "sell")
+                numberOfOrdersCancelled = await self.__cancelOrder(pair, "sell")
+                # stop coroutine since everything is filled
+                if (numberOfOrdersCancelled <= 0):
+                    break
+
             # amountToSell all went through into orders
-            log.debug("SELL: orders for {} all went through".format(pair))
+            log.info("SELL: orders for {} all went through".format(pair))
 
             # reduce buy duration once sell coroutine is done selling
             with self.buyRetryDurationLock:
@@ -396,14 +419,26 @@ class Portfolio(object):
             "BUY: amount to play for {}: {}".format(pair, amountToPlay))
         try:
             # if retry times more than N, break coroutine
-            while (amountLeftToOrder >= amountToPlay * 0.03):
+            while True:
                     # {"asks":[[0.00007600,1164],[0.00007620,1300], ... ],
                     #  "bids":[[0.00006901,200],[0.00006900,408], ... ], "isFrozen": 0, "seq": 18849}
                 orderBook = list(map(lambda tup: tuple(map(float, tup)),
                                      self.polo.returnOrderBook(pair, depth=100)["bids"]))
-                # determine prices in the specific altcoin
-                pricesAndAmount = [(price, ((weight * amountLeftToOrder) / price) * 0.99)
-                                   for (price, weight) in Portfolio.determinePrices(orderBook, "buy")]
+
+                # determine price and corresponding amount to order
+                # if the value put on order < 0.0001, stack the order with the
+                # next
+                actualWeight = 0
+                pricesAndAmount = []
+                for (price, weight) in Portfolio.determinePrices(orderBook, "buy"):
+                    # if total < 0.0001, stack the pair with the next
+                    actualWeight += weight
+                    total = actualWeight * amountLeftToOrder * 0.99
+                    if total > 0.0001:
+                        pricesAndAmount.append((price, total / price))
+                        # reset actualWeight for the next pair
+                        actualWeight = 0
+
                 for (price, amt) in pricesAndAmount:
                     retry = True
                     # place bids
@@ -411,35 +446,40 @@ class Portfolio(object):
                         retry = False
                         try:
                             # {"orderNumber":31226040,"resultingTrades":[{"amount":"338.8732","date":"2014-10-18 23:03:21","rate":"0.00000173","total":"0.00058625","tradeID":"16164","type":"buy"}]}
-                            order = self.polo.buy(pair, price, amt, orderType='postOnly')
-                            log.debug(order)
+                            order = self.polo.buy(
+                                pair, price, amt)
                             if "error" in order:
-                                log.debug(
+                                log.info(
                                     "Error: {}".format(order["error"]))
-                                log.debug(
+                                log.info(
                                     "Retrying buy bidding for {}: price {} amt {}".format(pair, price, amt))
                                 retry = True
                                 await asyncio.sleep(self.buyRetryDuration)
                                 continue
                             else:
-                                log.debug(
+                                log.info(
                                     "Buy order placed for {}".format(pair))
                         except Exception as e:
-                            log.debug(e)
-                            log.debug(
+                            log.info(e)
+                            amt = amt * 0.95
+                            log.info(
                                 "Retrying buy bidding for {}: price {} amt {}".format(pair, price, amt))
                             retry = True
                             await asyncio.sleep(self.buyRetryDuration)
                             continue
                             # cancel bids and retry
-                log.debug("Buy coroutine for {} sleeping...".format(pair))
+                log.info("Buy coroutine for {} sleeping...".format(pair))
                 await asyncio.sleep(self.waitTimeBetweenOrders)
 
                 # cancel all orders and
                 # update amountLeftToOrder
-                amountLeftToOrder = await self.__cancelOrder(pair, "buy")
+                numberOfOrdersCancelled = await self.__cancelOrder(pair, "buy")
+                # stop coroutine since everything is filled
+                if (numberOfOrdersCancelled <= 0):
+                    break
+
             # amountToPlay all went through into orders
-            log.debug("BUY: orders for {} all went through".format(pair))
+            log.info("BUY: orders for {} all went through".format(pair))
         except asyncio.CancelledError:
             # LOG
             log.debug(
