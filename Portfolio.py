@@ -384,7 +384,7 @@ class Portfolio(object):
                                     "Sell order placed for {}".format(pair))
                         except Exception as e:
                             log.info(e)
-                            amt = amt * 0.95
+                            amt = amt * 0.5
                             log.info(
                                 "Retrying sell bidding for {}: price {} amt {}".format(pair, price, amt))
                             retry = True
@@ -461,7 +461,7 @@ class Portfolio(object):
                                     "Buy order placed for {}".format(pair))
                         except Exception as e:
                             log.info(e)
-                            amt = amt * 0.95
+                            amt = amt * 0.5
                             log.info(
                                 "Retrying buy bidding for {}: price {} amt {}".format(pair, price, amt))
                             retry = True
