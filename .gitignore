@@ -1,5 +1,6 @@
 test*.py
 altbot-venv/
+altbot-py2/
 asynctest*.py
 __pycache__/
 .DS_Store

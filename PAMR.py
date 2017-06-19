@@ -55,13 +55,13 @@ class PAMR(object):
             return self.fee()
         return self.fee
 
-    def step(self, x, last_b, update_wealth=False):
+    def step(self, x, last_b, update_wealth=True):
         with self.lock:
             # calculate return prediction
             if update_wealth:
                 self.wealth = self.wealth * \
                     x.dot(last_b) * (1 - self.get_fee())
-                print("Wealth: {}".format(self.wealth))
+                # print("Wealth: {}".format(self.wealth))
             b = self.update(last_b, x, self.eps, self.C)
             # print(b)
         return b

@@ -150,7 +150,7 @@ class Portfolio(object):
 
                     # get previous pair amount
                     previousPairAmount = {}
-                    currentAmount = float(balances["BTC"]["available"])
+                    currentAmount = float(balances["BTC"]["btcValue"])
                     for pair in self.pairs:
                         ticker = pair[4:]
                         if ticker in balances:
@@ -164,8 +164,12 @@ class Portfolio(object):
 
                     # update self.amount for logging purposes
                     self.amount = currentAmount
-                    log.debug(
-                        "Current account value: {}".format(self.amount))
+                    if isinstance(event, StartEvent):
+                        log.debug(
+                            "Starting account value: {}".format(self.amount))
+                    elif isinstance(event, ReconfigureEvent):
+                        log.debug(
+                            "Current account value: {}".format(self.amount))
 
                     currentPairAmount = Portfolio.getPairAmount(
                         self.amount, event.pairsWeights)
@@ -268,13 +272,12 @@ class Portfolio(object):
         ordersToPut = []
         # (priceToBid, weight)
         if orderType == "buy":
+            ordersToPut.append((orderBook[0][0] * 1.000, 0.1))
             ordersToPut.append((orderBook[1][0] * 1.001, 0.1))
-            ordersToPut.append((orderBook[2][0] * 1.001, 0.1))
-            ordersToPut.append((orderBook[2][0] * 0.999, 0.25))
-            ordersToPut.append((orderBook[2][0] * 1.998, 0.25))
-            ordersToPut.append((orderBook[3][0] * 1.00, 0.1))
-            ordersToPut.append((orderBook[3][0] * 0.999, 0.1))
-            ordersToPut.append((orderBook[3][0] * 0.998, 0.1))
+            ordersToPut.append((orderBook[1][0] * 1.001, 0.25))
+            ordersToPut.append((orderBook[2][0] * 1.002, 0.2))
+            ordersToPut.append((orderBook[2][0] * 1.001, 0.25))
+            ordersToPut.append((orderBook[2][0] * 1.00, 0.1))
         if orderType == "sell":
             ordersToPut.append((orderBook[1][0] * 0.997, 0.2))
             ordersToPut.append((orderBook[1][0] * 0.998, 0.2))
@@ -290,46 +293,59 @@ class Portfolio(object):
         # cancels all orders for a given pair
         # and returns amount on open orders
         numberOfOpenOrders = 0
-        while True:
-            openOrders = self.polo.returnOpenOrders(pair)
-            if "error" in openOrders:
-                await asyncio.sleep(1.0)
-            else:
-                break
+        retryCancellation = True
+        retryMaxCount = 10
+        while retryCancellation != False:
+            retryCancellation = False
+            while True:
+                openOrders = self.polo.returnOpenOrders(pair)
+                if "error" in openOrders:
+                    await asyncio.sleep(1.0)
+                else:
+                    break
 
-        for order in openOrders:
-            # filter order types
-            if orderType == "all":
-                pass
-            elif orderType == "buy":
-                if order["type"] != "buy":
-                    continue
-            elif orderType == "sell":
-                if order["type"] != "sell":
-                    continue
+            for order in openOrders:
+                # filter order types
+                if orderType == "all":
+                    pass
+                elif orderType == "buy":
+                    if order["type"] != "buy":
+                        continue
+                elif orderType == "sell":
+                    if order["type"] != "sell":
+                        continue
 
-            orderNo = order["orderNumber"]
-            numberOfOpenOrders += 1
-            retry = True
-            while retry != False:
-                retry = False
-                try:
-                    cancellationMessage = self.polo.cancelOrder(orderNo)
-                    if cancellationMessage["success"] != 1 or "error" in cancellationMessage:
+                orderNo = order["orderNumber"]
+                numberOfOpenOrders += 1
+                retry = True
+                retryCount = 0
+                while retry != False:
+                    retry = False
+                    try:
+                        cancellationMessage = self.polo.cancelOrder(orderNo)
+                        if cancellationMessage["success"] != 1 or "error" in cancellationMessage:
+                            retry = True
+                            if retryCount >= retryMaxCount:
+                                retryCancellation = True
+                                break
+                            retryCount += 1
+                            log.info(
+                                "Cancellation of order for {} failed".format(pair))
+                            if withYield:
+                                await asyncio.sleep(1.0)
+                            continue
+                        log.info(
+                            "Cancellation of order for {} successful".format(pair))
+                    except Exception:
                         retry = True
+                        if retryCount >= retryMaxCount:
+                                retryCancellation = True
+                                break
+                        retryCount += 1
                         log.info(
                             "Cancellation of order for {} failed".format(pair))
                         if withYield:
                             await asyncio.sleep(1.0)
-                        continue
-                    log.info(
-                        "Cancellation of order for {} successful".format(pair))
-                except Exception:
-                    retry = True
-                    log.info(
-                        "Cancellation of order for {} failed".format(pair))
-                    if withYield:
-                        await asyncio.sleep(1.0)
         return numberOfOpenOrders
 
     async def __sellCoroutine(self, pair, amountToSell):
@@ -384,6 +400,8 @@ class Portfolio(object):
                                     "Sell order placed for {}".format(pair))
                         except Exception as e:
                             log.info(e)
+                            if str(e).startswith("Total must be at least"):
+                                break
                             amt = amt * 0.5
                             log.info(
                                 "Retrying sell bidding for {}: price {} amt {}".format(pair, price, amt))
@@ -461,6 +479,8 @@ class Portfolio(object):
                                     "Buy order placed for {}".format(pair))
                         except Exception as e:
                             log.info(e)
+                            if str(e).startswith("Total must be at least"):
+                                break
                             amt = amt * 0.5
                             log.info(
                                 "Retrying buy bidding for {}: price {} amt {}".format(pair, price, amt))

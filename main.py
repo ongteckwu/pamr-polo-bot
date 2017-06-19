@@ -19,7 +19,7 @@ logPortfolio.addHandler(handler)
 
 # GET ALL PAIRS
 API_KEY = "apple"
-SECRET = "3fb6648662e40e9bda1d12c0"
+SECRET = "pear"
 CHECK_PERIOD = 60  # check every minute
 LAST_CHECK_DATE = time() - CHECK_PERIOD
 LATEST_DATE = None
@@ -45,6 +45,8 @@ async def main():
                 print("Checking for new data...")
                 hasAllNewData = True  # changed to False if not all data is present
                 newData = None
+
+                # to update latest date
                 nDate = None
                 for pair in allPairs:
                     cdata = p.returnChartData(pair, CHART_PERIOD, LATEST_DATE)
@@ -83,6 +85,7 @@ async def main():
                     # update weights
                     weights = pamr.step(ratios, weights, update_wealth=True)
                     print("New weights: {}".format(weights))
+                    print("Theoretical percentage increase: {}".format(pamr.wealth))
                     pairsWeights = pairsToWeights(allPairs, weights)
                     portfolio.sendEvent(ReconfigureEvent(pairsWeights))
 
