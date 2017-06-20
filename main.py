@@ -18,8 +18,8 @@ log.addHandler(handler)
 logPortfolio.addHandler(handler)
 
 # GET ALL PAIRS
-API_KEY = "apple"
-SECRET = "pear"
+API_KEY = "8N0DP32H-UDZX8K7F-Q70NU866-BD501GE0"
+SECRET = "3fb6648662e40e9bda1d12c0b1e98236e7a7974630450a02a9a3c82c50dea15545d52cb84e6ec3fe8ef6d4d7894735766c8dd26ec6a6955d6ed541120cfaab9c"
 CHECK_PERIOD = 60  # check every minute
 LAST_CHECK_DATE = time() - CHECK_PERIOD
 LATEST_DATE = None
@@ -43,9 +43,9 @@ async def main():
         while True:
             if time() - LAST_CHECK_DATE > CHECK_PERIOD:
                 print("Checking for new data...")
-                hasAllNewData = True  # changed to False if not all data is present
+                # changed to False if not all data is present
+                hasAllNewData = True
                 newData = None
-
                 # to update latest date
                 nDate = None
                 for pair in allPairs:
@@ -54,6 +54,7 @@ async def main():
                     hasNewData = False
                     if (len(cdata) == 0):
                         # no new data
+                        hasAllNewData = False
                         break
                     else:
                         # check whether got new data
@@ -62,9 +63,11 @@ async def main():
                                 hasNewData = True
                                 if ((nDate is None) or d["date"] > nDate):
                                     nDate = d["date"]
+                                    
                         if not hasNewData:
                             hasAllNewData = False
                             break
+
                     # if there's data (won't reach here if no data)
                     if newData is None:
                         newData = DataFrame.from_dict(

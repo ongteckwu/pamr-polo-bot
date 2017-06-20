@@ -14,9 +14,8 @@ p = poloniex.Poloniex()
 CHECK_PERIOD = p.MINUTE  # check every minute
 LAST_CHECK_DATE = time() - CHECK_PERIOD
 LATEST_DATE = None
-CHART_PERIOD = 14400
+CHART_PERIOD = 300
 LAST_TRADE_PERIOD = None
-INITIAL_AMOUNT = 1.00
 
 allPairs = [a for a in p.returnTicker().keys() if a.startswith("BTC")
             and not a.endswith("GNO")]
@@ -70,10 +69,12 @@ try:
             nDate = None
             for pair in allPairs:
                 cdata = p.returnChartData(pair, CHART_PERIOD, LATEST_DATE)
+                print(cdata)
                 # if new data is found, the following will not be run
                 hasNewData = False
                 if (len(cdata) == 0):
                     # no new data
+                    hasAllNewData = False
                     break
                 else:
                     # check whether got new data
