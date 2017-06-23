@@ -3,12 +3,14 @@ import pandas as pd
 import logging
 import asyncio
 import sys
+import ratioStrategy
 
 from time import time, sleep
 from pandas import DataFrame
 from PAMR import PAMR
 from utilities import cleanNANs, pairsToWeights
 from Portfolio import Portfolio, ReconfigureEvent
+
 
 log = logging.getLogger(__name__)
 logPortfolio = logging.getLogger(Portfolio.__name__)
@@ -20,10 +22,10 @@ logPortfolio.addHandler(handler)
 # GET ALL PAIRS
 API_KEY = "8N0DP32H-UDZX8K7F-Q70NU866-BD501GE0"
 SECRET = "3fb6648662e40e9bda1d12c0b1e98236e7a7974630450a02a9a3c82c50dea15545d52cb84e6ec3fe8ef6d4d7894735766c8dd26ec6a6955d6ed541120cfaab9c"
+CHECK_PERIOD = 60
 LAST_CHECK_DATE = time() - CHECK_PERIOD
 LATEST_DATE = None
 CHART_PERIOD = 7200
-CHECK_PERIOD = 60
 MARKET_BUY_PERCENTAGE = 0.1
 
 async def main():
@@ -69,26 +71,26 @@ async def main():
                             newDataTemp.set_index('date'), on="date")
 
                 if hasAllNewData:
-                # check for NANs
-                noOfNANs = newData.isnull().sum().sum()
-                if not (noOfNANs > len(allPairs) * 0.1 and noOfNANs > 3):
-                    oldData = ratioStrat.getData().iloc[-1]
-                    newData = newData.fillna(oldData)
-                    logging.debug("New data arrived")
-                    # update data
-                    # data.append(newData)
-                    # ratios = data.iloc[-1][2:] / data.iloc[-2][2:]
-                    # update weights
-                    ratios = ratioStrat.updateDataAndRatio(newData)
-                    weights = pamr.step(ratios, weights, update_wealth=True)
-                    print("New weights: {}".format(weights))
-                    print("Theoretical percentage increase: {}".format(pamr.wealth))
-                    pairsWeights = pairsToWeights(allPairs, weights)
-                    portfolio.sendEvent(ReconfigureEvent(pairsWeights))
-                    # update LATEST_DATE
-                    LATEST_DATE = nDate
-                else:
-                    print("Number of nans: {} - SKIP UPDATE".format(noOfNANs))
+                    # check for NANs
+                    noOfNANs = newData.isnull().sum().sum()
+                    if not (noOfNANs > len(allPairs) * 0.1 and noOfNANs > 3):
+                        oldData = ratioStrat.getData().iloc[-1]
+                        newData = newData.fillna(oldData)
+                        logging.debug("New data arrived")
+                        # update data
+                        # data.append(newData)
+                        # ratios = data.iloc[-1][2:] / data.iloc[-2][2:]
+                        # update weights
+                        ratios = ratioStrat.updateDataAndRatio(newData)
+                        weights = pamr.step(ratios, weights, update_wealth=True)
+                        print("New weights: {}".format(weights))
+                        print("Theoretical percentage increase: {}".format(pamr.wealth))
+                        pairsWeights = pairsToWeights(allPairs, weights)
+                        portfolio.sendEvent(ReconfigureEvent(pairsWeights))
+                        # update LATEST_DATE
+                        LATEST_DATE = nDate
+                    else:
+                        print("Number of nans: {} - SKIP UPDATE".format(noOfNANs))
 
             LAST_CHECK_DATE = time()
 
