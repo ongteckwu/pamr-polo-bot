@@ -26,7 +26,7 @@ print(allPairs)
 # COMBINE PAIRS INTO ONE DATAFRAME
 print("Downloading data from Poloniex")
 firstPair = False
-if False:
+if True:
     for pair in allPairs:
         if not firstPair:
             data = DataFrame.from_dict(p.returnChartData(
@@ -42,7 +42,6 @@ if False:
     data.to_csv("poloTestData.csv")
 # GET LATEST DATE
 data = pd.read_csv("./poloTestData.csv")
-print(data)
 LATEST_DATE = data["date"].iloc[-1]
 
 
@@ -67,7 +66,6 @@ try:
             for pair in allPairs:
                 cdata = p.returnChartData(pair, CHART_PERIOD, LATEST_DATE)
                 # if new data is found, the following will not be run
-                hasNewData = False
                 if (len(cdata) == 0):
                     # no new data
                     hasAllNewData = False
@@ -76,12 +74,9 @@ try:
                     # check whether got new data
                     for d in cdata:
                         if d["date"] > LATEST_DATE:
-                            hasNewData = True
                             if ((nDate is None) or d["date"] > nDate):
                                 nDate = d["date"]
-                    if not hasNewData:
-                        hasAllNewData = False
-                        break
+
                 # if there's data (won't reach here if no data)
                 if newData is None:
                     newData = DataFrame.from_dict(
@@ -95,16 +90,21 @@ try:
                         newDataTemp.set_index('date'), on="date")
 
             if hasAllNewData:
-                # # update data
-                # data.append(newData)
-                # # update weights
-                # ratios = data.iloc[-1][2:] / data.iloc[-2][2:]
-                ratios = ratioStrat.updateDataAndRatio(newData)
-                weights = pamr.step(ratios, weights, update_wealth=True)
-                print("New weights: {}".format(weights))
-                pairsWeights = pairsToWeights(allPairs, weights)
-                # update LATEST_DATE
-                LATEST_DATE = nDate
+                # check for NANs
+                print(newData)
+                noOfNANs = newData.isnull().sum().sum()
+                if not (noOfNANs > len(allPairs) * 0.1 and noOfNANs > 3):
+                    oldData = ratioStrat.getData().iloc[-1]
+                    newData = newData.fillna(oldData)
+                    ratios = ratioStrat.updateDataAndRatio(newData)
+                    weights = pamr.step(ratios, weights, update_wealth=True)
+                    print("New weights: {}".format(weights))
+                    print("Theoretical percentage increase: {}".format(pamr.wealth))
+                    pairsWeights = pairsToWeights(allPairs, weights)
+                    # update LATEST_DATE
+                    LATEST_DATE = nDate
+                else:
+                    print("Number of nans: {} - SKIP UPDATE".format(noOfNANs))
 
         LAST_CHECK_DATE = time()
 

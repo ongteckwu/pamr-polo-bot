@@ -61,7 +61,7 @@ class PAMR(object):
             if update_wealth:
                 self.wealth = self.wealth * \
                     x.dot(last_b) * (1 - self.get_fee())
-                print("Wealth: {}".format(self.wealth))
+                # print("Wealth: {}".format(self.wealth))
             b = self.update(last_b, x, self.eps, self.C)
             # print(b)
         return b
@@ -88,7 +88,7 @@ class PAMR(object):
         # project it onto simplex
         return tools.simplex_proj(b)
 
-    def train(self, update_wealth=True):
+    def train(self, update_wealth=False):
         with self.lock:
             b = self.init_weights(len(self.ratios.columns))
             for index, row in self.ratios.iterrows():

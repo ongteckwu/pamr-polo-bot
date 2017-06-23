@@ -20,11 +20,11 @@ logPortfolio.addHandler(handler)
 # GET ALL PAIRS
 API_KEY = "8N0DP32H-UDZX8K7F-Q70NU866-BD501GE0"
 SECRET = "3fb6648662e40e9bda1d12c0b1e98236e7a7974630450a02a9a3c82c50dea15545d52cb84e6ec3fe8ef6d4d7894735766c8dd26ec6a6955d6ed541120cfaab9c"
-CHECK_PERIOD = 60  # check every minute
 LAST_CHECK_DATE = time() - CHECK_PERIOD
 LATEST_DATE = None
-CHART_PERIOD = 14400
-
+CHART_PERIOD = 7200
+CHECK_PERIOD = 60
+MARKET_BUY_PERCENTAGE = 0.1
 
 async def main():
     global CHECK_PERIOD
@@ -32,6 +32,7 @@ async def main():
     global LATEST_DATE
     global CHART_PERIOD
     global weights
+    global ratioStrat
     try:
         while True:
             if time() - LAST_CHECK_DATE > CHECK_PERIOD:
@@ -44,7 +45,6 @@ async def main():
                 for pair in allPairs:
                     cdata = p.returnChartData(pair, CHART_PERIOD, LATEST_DATE)
                     # if new data is found, the following will not be run
-                    hasNewData = False
                     if (len(cdata) == 0):
                         # no new data
                         hasAllNewData = False
@@ -53,13 +53,8 @@ async def main():
                         # check whether got new data
                         for d in cdata:
                             if d["date"] > LATEST_DATE:
-                                hasNewData = True
                                 if ((nDate is None) or d["date"] > nDate):
                                     nDate = d["date"]
-
-                        if not hasNewData:
-                            hasAllNewData = False
-                            break
 
                     # if there's data (won't reach here if no data)
                     if newData is None:
@@ -74,19 +69,26 @@ async def main():
                             newDataTemp.set_index('date'), on="date")
 
                 if hasAllNewData:
+                # check for NANs
+                noOfNANs = newData.isnull().sum().sum()
+                if not (noOfNANs > len(allPairs) * 0.1 and noOfNANs > 3):
+                    oldData = ratioStrat.getData().iloc[-1]
+                    newData = newData.fillna(oldData)
                     logging.debug("New data arrived")
                     # update data
-                    data.append(newData)
-                    ratios = data.iloc[-1][2:] / data.iloc[-2][2:]
+                    # data.append(newData)
+                    # ratios = data.iloc[-1][2:] / data.iloc[-2][2:]
                     # update weights
+                    ratios = ratioStrat.updateDataAndRatio(newData)
                     weights = pamr.step(ratios, weights, update_wealth=True)
                     print("New weights: {}".format(weights))
                     print("Theoretical percentage increase: {}".format(pamr.wealth))
                     pairsWeights = pairsToWeights(allPairs, weights)
                     portfolio.sendEvent(ReconfigureEvent(pairsWeights))
-
                     # update LATEST_DATE
                     LATEST_DATE = nDate
+                else:
+                    print("Number of nans: {} - SKIP UPDATE".format(noOfNANs))
 
             LAST_CHECK_DATE = time()
 
@@ -127,17 +129,16 @@ if __name__ == "__main__":
     LATEST_DATE = data["date"].iloc[-1]
 
     data = cleanNANs(data)
-    ratios = staggeredRatios(data, 14400)
-    ratios = ratios.drop(data.columns[[0, 1]], 1)
+    ratioStrat = ratioStrategy.BasicRatioStrategy(data)
+    pamr = PAMR(ratios=ratioStrat.getRatios())
     # removes index and data column and removes NANs
     # data = cleanNANs(data)
     # data = data.drop(data.columns[[0, 1]], 1)
     # ratios = (data / data.shift(1))[1:]
-    pamr = PAMR(ratios=ratios)
     weights = pamr.train()
     print(weights)
     pairsWeights = pairsToWeights(allPairs, weights)
-    portfolio = Portfolio(p, initialPairsWeights=pairsWeights)
+    portfolio = Portfolio(p, initialPairsWeights=pairsWeights, marketBuyPercentage=MARKET_BUY_PERCENTAGE)
     loop = asyncio.get_event_loop()
 
     loop.create_task(main())

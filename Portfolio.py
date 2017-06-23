@@ -45,9 +45,11 @@ class Portfolio(object):
     class PortfolioMisconfiguredException(Exception):
         pass
 
-    def __init__(self, poloObj, initialPairsWeights, pairs=None, isSimulation=False):
+    def __init__(self, poloObj, initialPairsWeights, marketBuyPercentage=0.1, pairs=None, isSimulation=False):
         # if not poloObj.key:
         #   raise PortfolioMisconfiguredException("No key in poloObj")
+        # amount to market buy every round
+        self.marketBuyPercentage = marketBuyPercentage
         self.polo = poloObj
         self.waitTimeBetweenOrders = self.polo.MINUTE
         self.isSimulation = isSimulation
@@ -266,27 +268,43 @@ class Portfolio(object):
         return {pair: (pairsWeights[pair] * amount) for pair in pairsWeights}
 
     @staticmethod
-    def determinePrices(orderBook, orderType="buy"):
+    def determinePrices(orderBook, marketBuyPercentage, orderType="buy"):
         # returns prices to order at and weights
         # [(price, weight),...]
         ordersToPut = []
+        orderBookAsks = orderBook["asks"]
+        orderBookBids = orderBook["bids"]
+        remainingPercentage = (1.0 - marketBuyPercentage)
         # (priceToBid, weight)
         if orderType == "buy":
-            ordersToPut.append((orderBook[0][0] * 1.000, 0.1))
-            ordersToPut.append((orderBook[1][0] * 1.001, 0.1))
-            ordersToPut.append((orderBook[1][0] * 1.001, 0.25))
-            ordersToPut.append((orderBook[2][0] * 1.002, 0.2))
-            ordersToPut.append((orderBook[2][0] * 1.001, 0.25))
-            ordersToPut.append((orderBook[2][0] * 1.00, 0.1))
+            orderToPut.append(
+                (orderBookAsks[0][0] * 1.001), marketBuyPercentage)
+            ordersToPut.append(
+                (orderBookBids[0][0] * 1.000, 0.1 * remainingPercentage))
+            ordersToPut.append(
+                (orderBookBids[1][0] * 1.001, 0.1 * remainingPercentage))
+            ordersToPut.append(
+                (orderBookBids[1][0] * 1.001, 0.25 * remainingPercentage))
+            ordersToPut.append(
+                (orderBookBids[2][0] * 1.002, 0.2 * remainingPercentage))
+            ordersToPut.append(
+                (orderBookBids[2][0] * 1.001, 0.25 * remainingPercentage))
+            ordersToPut.append(
+                (orderBookBids[2][0] * 1.00, 0.1 * remainingPercentage))
         if orderType == "sell":
-            ordersToPut.append((orderBook[1][0] * 0.997, 0.2))
-            ordersToPut.append((orderBook[1][0] * 0.998, 0.2))
-            ordersToPut.append((orderBook[1][0] * 0.999, 0.2))
-            ordersToPut.append((orderBook[2][0] * 0.998, 0.2))
-            ordersToPut.append((orderBook[2][0] * 0.999, 0.2))
+            orderToPut.append(
+                (orderBookBids[0][0] * 0.999), marketBuyPercentage)
+            ordersToPut.append(
+                (orderBookAsks[1][0] * 0.997, 0.2 * remainingPercentage))
+            ordersToPut.append(
+                (orderBookAsks[1][0] * 0.998, 0.2 * remainingPercentage))
+            ordersToPut.append(
+                (orderBookAsks[1][0] * 0.999, 0.2 * remainingPercentage))
+            ordersToPut.append(
+                (orderBookAsks[2][0] * 0.998, 0.2 * remainingPercentage))
+            ordersToPut.append(
+                (orderBookAsks[2][0] * 0.999, 0.2 * remainingPercentage))
             # (priceToBid, weight)
-        assert(sum([pair[1] for pair in ordersToPut]) == 1.0,
-               "Weights on determinePrices do not sum up to 1")
         return ordersToPut
 
     async def __cancelOrder(self, pair, orderType="all", withYield=True):
@@ -295,7 +313,7 @@ class Portfolio(object):
         numberOfOpenOrders = 0
         retryCancellation = True
         retryMaxCount = 10
-        while retryCancellation != False:
+        while retryCancellation is not False:
             retryCancellation = False
             while True:
                 openOrders = self.polo.returnOpenOrders(pair)
@@ -339,8 +357,8 @@ class Portfolio(object):
                     except Exception:
                         retry = True
                         if retryCount >= retryMaxCount:
-                                retryCancellation = True
-                                break
+                            retryCancellation = True
+                            break
                         retryCount += 1
                         log.info(
                             "Cancellation of order for {} failed".format(pair))
@@ -362,14 +380,14 @@ class Portfolio(object):
                 # {"asks":[[0.00007600,1164],[0.00007620,1300], ... ],
                 #  "bids":[[0.00006901,200],[0.00006900,408], ... ], "isFrozen": 0, "seq": 18849}
                 orderBook = list(map(lambda tup: tuple(
-                    map(float, tup)), self.polo.returnOrderBook(pair, depth=100)["asks"]))
+                    map(float, tup)), self.polo.returnOrderBook(pair, depth=100)))
 
                 # determine price and corresponding amount to order
                 # if the value put on order < 0.0001, stack the order with the
                 # next
                 actualWeight = 0
                 pricesAndAmount = []
-                for (price, weight) in Portfolio.determinePrices(orderBook, "sell"):
+                for (price, weight) in Portfolio.determinePrices(orderBook, self.marketBuyPercentage, "sell"):
                     # if total < 0.0001, stack the pair with the next
                     actualWeight += weight
                     total = actualWeight * amountLeftToOrder * 0.99
@@ -441,14 +459,14 @@ class Portfolio(object):
                     # {"asks":[[0.00007600,1164],[0.00007620,1300], ... ],
                     #  "bids":[[0.00006901,200],[0.00006900,408], ... ], "isFrozen": 0, "seq": 18849}
                 orderBook = list(map(lambda tup: tuple(map(float, tup)),
-                                     self.polo.returnOrderBook(pair, depth=100)["bids"]))
+                                     self.polo.returnOrderBook(pair, depth=100)))
 
                 # determine price and corresponding amount to order
                 # if the value put on order < 0.0001, stack the order with the
                 # next
                 actualWeight = 0
                 pricesAndAmount = []
-                for (price, weight) in Portfolio.determinePrices(orderBook, "buy"):
+                for (price, weight) in Portfolio.determinePrices(orderBook, self.marketBuyPercentage, "buy"):
                     # if total < 0.0001, stack the pair with the next
                     actualWeight += weight
                     total = actualWeight * amountLeftToOrder * 0.99
