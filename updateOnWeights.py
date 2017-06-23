@@ -1,13 +1,14 @@
 import poloniex
-import pprint
 import os
 import pandas as pd
 import logging
+import ratioStrategy
 
 from time import time, sleep
 from pandas import DataFrame
 from PAMR import PAMR
-from utilities import cleanNANs
+from utilities import cleanNANs, pairsToWeights
+
 
 # GET ALL PAIRS
 p = poloniex.Poloniex()
@@ -25,36 +26,32 @@ print(allPairs)
 # COMBINE PAIRS INTO ONE DATAFRAME
 print("Downloading data from Poloniex")
 firstPair = False
-for pair in allPairs:
-    if not firstPair:
-        data = DataFrame.from_dict(p.returnChartData(
-            pair, CHART_PERIOD, time() - 2 * p.MONTH)).ix[:, ['date', 'close']]
-        data.columns = ['date', pair]
-        firstPair = True
-    else:
-        newData = DataFrame.from_dict(p.returnChartData(
-            pair, CHART_PERIOD, time() - 2 * p.MONTH)).ix[:, ['date', 'close']]
-        newData.columns = ['date', pair]
-        data = data.join(newData.set_index('date'), on="date")
+if False:
+    for pair in allPairs:
+        if not firstPair:
+            data = DataFrame.from_dict(p.returnChartData(
+                pair, CHART_PERIOD, time() - 2 * p.MONTH)).ix[:, ['date', 'close']]
+            data.columns = ['date', pair]
+            firstPair = True
+        else:
+            newData = DataFrame.from_dict(p.returnChartData(
+                pair, CHART_PERIOD, time() - 2 * p.MONTH)).ix[:, ['date', 'close']]
+            newData.columns = ['date', pair]
+            data = data.join(newData.set_index('date'), on="date")
 
-data.to_csv("poloTestData.csv")
+    data.to_csv("poloTestData.csv")
 # GET LATEST DATE
 data = pd.read_csv("./poloTestData.csv")
 print(data)
 LATEST_DATE = data["date"].iloc[-1]
 
 
-def pairsToWeights(pairs, weights):
-    pairsWeights = {}
-    for i in range(len(pairs)):
-        pairsWeights[pairs[i]] = weights[i]
-    return pairsWeights
-
-
 # removes index and data column and removes NANs
 data = cleanNANs(data)
-cleanedData = data.drop(data.columns[[0, 1]], 1)
-pamr = PAMR(data=cleanedData)
+ratioStrat = ratioStrategy.BasicRatioStrategy(data)
+# data = data.drop(data.columns[[0, 1]], 1)
+# ratios = (data / data.shift(1))[1:]
+pamr = PAMR(ratios=ratioStrat.getRatios())
 weights = pamr.train()
 print(weights)
 pairsWeights = pairsToWeights(allPairs, weights)
@@ -69,7 +66,6 @@ try:
             nDate = None
             for pair in allPairs:
                 cdata = p.returnChartData(pair, CHART_PERIOD, LATEST_DATE)
-                print(cdata)
                 # if new data is found, the following will not be run
                 hasNewData = False
                 if (len(cdata) == 0):
@@ -92,19 +88,21 @@ try:
                         cdata).ix[:, ['date', 'close']]
                     newData.columns = ['date', pair]
                 else:
-                    newDataTemp = DataFrame.from_dict(cdata).ix[:, ['date', 'close']]
+                    newDataTemp = DataFrame.from_dict(
+                        cdata).ix[:, ['date', 'close']]
                     newDataTemp.columns = ['date', pair]
-                    newData = newData.join(newDataTemp.set_index('date'), on="date")
+                    newData = newData.join(
+                        newDataTemp.set_index('date'), on="date")
 
             if hasAllNewData:
-                # update data
-                data.append(newData)
-                # update weights
-                ratios = data.iloc[-1][2:] / data.iloc[-2][2:]
+                # # update data
+                # data.append(newData)
+                # # update weights
+                # ratios = data.iloc[-1][2:] / data.iloc[-2][2:]
+                ratios = ratioStrat.updateDataAndRatio(newData)
                 weights = pamr.step(ratios, weights, update_wealth=True)
                 print("New weights: {}".format(weights))
                 pairsWeights = pairsToWeights(allPairs, weights)
-                portfolio.sendEvent(ReconfigureEvent(pairsWeights))
                 # update LATEST_DATE
                 LATEST_DATE = nDate
 

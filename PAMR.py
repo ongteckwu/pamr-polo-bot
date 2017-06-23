@@ -17,7 +17,7 @@ class PAMR(object):
         http://www.cais.ntu.edu.sg/~chhoi/paper_pdf/PAMR_ML_final.pdf
     """
 
-    def __init__(self, data, fee=0.0025, eps=0.5, C=500, variant=0):
+    def __init__(self, ratios, fee=0.0025, eps=0.5, C=500, variant=0):
         """
         :param eps: Control parameter for variant 0. Must be >=0, recommended value is
                     between 0.5 and 1.
@@ -41,7 +41,7 @@ class PAMR(object):
         self.eps = eps
         self.C = C
         self.variant = variant
-        self.ratios = (data / data.shift(1))[1:]
+        self.ratios = ratios
         self.wealth = 1
         self.fee = fee
         self.lock = RLock()
@@ -61,7 +61,7 @@ class PAMR(object):
             if update_wealth:
                 self.wealth = self.wealth * \
                     x.dot(last_b) * (1 - self.get_fee())
-                # print("Wealth: {}".format(self.wealth))
+                print("Wealth: {}".format(self.wealth))
             b = self.update(last_b, x, self.eps, self.C)
             # print(b)
         return b
@@ -88,11 +88,12 @@ class PAMR(object):
         # project it onto simplex
         return tools.simplex_proj(b)
 
-    def train(self, update_wealth=False):
+    def train(self, update_wealth=True):
         with self.lock:
             b = self.init_weights(len(self.ratios.columns))
             for index, row in self.ratios.iterrows():
                 b = self.step(row, b, update_wealth)
+                # print(b)
             return b
 
 

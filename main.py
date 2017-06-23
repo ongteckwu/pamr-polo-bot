@@ -7,7 +7,7 @@ import sys
 from time import time, sleep
 from pandas import DataFrame
 from PAMR import PAMR
-from utilities import cleanNANs
+from utilities import cleanNANs, pairsToWeights
 from Portfolio import Portfolio, ReconfigureEvent
 
 log = logging.getLogger(__name__)
@@ -24,13 +24,6 @@ CHECK_PERIOD = 60  # check every minute
 LAST_CHECK_DATE = time() - CHECK_PERIOD
 LATEST_DATE = None
 CHART_PERIOD = 14400
-
-
-def pairsToWeights(pairs, weights):
-    pairsWeights = {}
-    for i in range(len(pairs)):
-        pairsWeights[pairs[i]] = weights[i]
-    return pairsWeights
 
 
 async def main():
@@ -63,7 +56,7 @@ async def main():
                                 hasNewData = True
                                 if ((nDate is None) or d["date"] > nDate):
                                     nDate = d["date"]
-                                    
+
                         if not hasNewData:
                             hasAllNewData = False
                             break
@@ -133,10 +126,14 @@ if __name__ == "__main__":
     data = pd.read_csv("./poloTestData.csv")
     LATEST_DATE = data["date"].iloc[-1]
 
-    # removes index and data column and removes NANs
     data = cleanNANs(data)
-    cleanedData = data.drop(data.columns[[0, 1]], 1)
-    pamr = PAMR(data=cleanedData)
+    ratios = staggeredRatios(data, 14400)
+    ratios = ratios.drop(data.columns[[0, 1]], 1)
+    # removes index and data column and removes NANs
+    # data = cleanNANs(data)
+    # data = data.drop(data.columns[[0, 1]], 1)
+    # ratios = (data / data.shift(1))[1:]
+    pamr = PAMR(ratios=ratios)
     weights = pamr.train()
     print(weights)
     pairsWeights = pairsToWeights(allPairs, weights)
