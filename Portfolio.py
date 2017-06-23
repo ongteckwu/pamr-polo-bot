@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from queue import Queue, Empty
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
+log.setLevel(logging.INFO)
 
 
 class PortfolioEvent(object):
@@ -239,6 +239,7 @@ class Portfolio(object):
         with self.orderSetLock:
             self.pairsOnOrder.update(pairsOnOrder)
 
+
     async def __cancelTasks(self, tasks):
         print("Cancelling tasks...")
         list(map(lambda task: task.cancel(), tasks))
@@ -268,17 +269,16 @@ class Portfolio(object):
         return {pair: (pairsWeights[pair] * amount) for pair in pairsWeights}
 
     @staticmethod
-    def determinePrices(orderBook, marketBuyPercentage, orderType="buy"):
+    def determinePrices(orderBookBids, orderBookAsks,
+                        marketBuyPercentage, orderType="buy"):
         # returns prices to order at and weights
         # [(price, weight),...]
         ordersToPut = []
-        orderBookAsks = orderBook["asks"]
-        orderBookBids = orderBook["bids"]
         remainingPercentage = (1.0 - marketBuyPercentage)
         # (priceToBid, weight)
         if orderType == "buy":
-            orderToPut.append(
-                (orderBookAsks[0][0] * 1.001), marketBuyPercentage)
+            ordersToPut.append(
+                (orderBookAsks[0][0] * 1.001, marketBuyPercentage))
             ordersToPut.append(
                 (orderBookBids[0][0] * 1.000, 0.1 * remainingPercentage))
             ordersToPut.append(
@@ -292,8 +292,8 @@ class Portfolio(object):
             ordersToPut.append(
                 (orderBookBids[2][0] * 1.00, 0.1 * remainingPercentage))
         if orderType == "sell":
-            orderToPut.append(
-                (orderBookBids[0][0] * 0.999), marketBuyPercentage)
+            ordersToPut.append(
+                (orderBookBids[0][0] * 0.999, marketBuyPercentage))
             ordersToPut.append(
                 (orderBookAsks[1][0] * 0.997, 0.2 * remainingPercentage))
             ordersToPut.append(
@@ -379,15 +379,20 @@ class Portfolio(object):
             while True:
                 # {"asks":[[0.00007600,1164],[0.00007620,1300], ... ],
                 #  "bids":[[0.00006901,200],[0.00006900,408], ... ], "isFrozen": 0, "seq": 18849}
-                orderBook = list(map(lambda tup: tuple(
-                    map(float, tup)), self.polo.returnOrderBook(pair, depth=100)))
+                orderBook = self.polo.returnOrderBook(pair, depth=100)
+                orderBookBids = list(map(lambda tup: tuple(map(float, tup)),
+                                         orderBook["bids"]))
+
+                orderBookAsks = list(map(lambda tup: tuple(map(float, tup)),
+                                         orderBook["asks"]))
 
                 # determine price and corresponding amount to order
                 # if the value put on order < 0.0001, stack the order with the
                 # next
                 actualWeight = 0
                 pricesAndAmount = []
-                for (price, weight) in Portfolio.determinePrices(orderBook, self.marketBuyPercentage, "sell"):
+                for (price, weight) in Portfolio.determinePrices(orderBookBids, orderBookAsks,
+                                                                 self.marketBuyPercentage, "sell"):
                     # if total < 0.0001, stack the pair with the next
                     actualWeight += weight
                     total = actualWeight * amountLeftToOrder * 0.99
@@ -458,15 +463,20 @@ class Portfolio(object):
             while True:
                     # {"asks":[[0.00007600,1164],[0.00007620,1300], ... ],
                     #  "bids":[[0.00006901,200],[0.00006900,408], ... ], "isFrozen": 0, "seq": 18849}
-                orderBook = list(map(lambda tup: tuple(map(float, tup)),
-                                     self.polo.returnOrderBook(pair, depth=100)))
+                orderBook = self.polo.returnOrderBook(pair, depth=100)
+                orderBookBids = list(map(lambda tup: tuple(map(float, tup)),
+                                         orderBook["bids"]))
+
+                orderBookAsks = list(map(lambda tup: tuple(map(float, tup)),
+                                         orderBook["asks"]))
 
                 # determine price and corresponding amount to order
                 # if the value put on order < 0.0001, stack the order with the
                 # next
                 actualWeight = 0
                 pricesAndAmount = []
-                for (price, weight) in Portfolio.determinePrices(orderBook, self.marketBuyPercentage, "buy"):
+                for (price, weight) in Portfolio.determinePrices(orderBookBids, orderBookAsks,
+                                                                 self.marketBuyPercentage, "buy"):
                     # if total < 0.0001, stack the pair with the next
                     actualWeight += weight
                     total = actualWeight * amountLeftToOrder * 0.99

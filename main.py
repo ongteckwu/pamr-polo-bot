@@ -47,12 +47,11 @@ async def main():
                 for pair in allPairs:
                     cdata = p.returnChartData(pair, CHART_PERIOD, LATEST_DATE)
                     # if new data is found, the following will not be run
-                    if (len(cdata) == 0):
+                    if (len(cdata) == 0) or cdata[0]["date"] == 0:
                         # no new data
                         hasAllNewData = False
                         break
                     else:
-                        # check whether got new data
                         for d in cdata:
                             if d["date"] > LATEST_DATE:
                                 if ((nDate is None) or d["date"] > nDate):
@@ -73,6 +72,7 @@ async def main():
                 if hasAllNewData:
                     # check for NANs
                     noOfNANs = newData.isnull().sum().sum()
+                    print("Number of nans: {}".format(noOfNANs))
                     if not (noOfNANs > len(allPairs) * 0.1 and noOfNANs > 3):
                         oldData = ratioStrat.getData().iloc[-1]
                         newData = newData.fillna(oldData)
@@ -133,10 +133,6 @@ if __name__ == "__main__":
     data = cleanNANs(data)
     ratioStrat = ratioStrategy.BasicRatioStrategy(data)
     pamr = PAMR(ratios=ratioStrat.getRatios())
-    # removes index and data column and removes NANs
-    # data = cleanNANs(data)
-    # data = data.drop(data.columns[[0, 1]], 1)
-    # ratios = (data / data.shift(1))[1:]
     weights = pamr.train()
     print(weights)
     pairsWeights = pairsToWeights(allPairs, weights)
