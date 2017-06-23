@@ -22,11 +22,12 @@ logPortfolio.addHandler(handler)
 # GET ALL PAIRS
 API_KEY = "8N0DP32H-UDZX8K7F-Q70NU866-BD501GE0"
 SECRET = "3fb6648662e40e9bda1d12c0b1e98236e7a7974630450a02a9a3c82c50dea15545d52cb84e6ec3fe8ef6d4d7894735766c8dd26ec6a6955d6ed541120cfaab9c"
-CHECK_PERIOD = 60
+CHECK_PERIOD = 5
 LAST_CHECK_DATE = time() - CHECK_PERIOD
 LATEST_DATE = None
 CHART_PERIOD = 7200
 MARKET_BUY_PERCENTAGE = 0.1
+
 
 async def main():
     global CHECK_PERIOD
@@ -38,16 +39,16 @@ async def main():
     try:
         while True:
             if time() - LAST_CHECK_DATE > CHECK_PERIOD:
-                print("Checking for new data...")
+                print("Checking for new data... LATEST DATE: {}".format(LATEST_DATE))
                 # changed to False if not all data is present
                 hasAllNewData = True
                 newData = None
                 # to update latest date
                 nDate = None
                 for pair in allPairs:
-                    cdata = p.returnChartData(pair, CHART_PERIOD, LATEST_DATE)
+                    cdata = p.returnChartData(pair, CHART_PERIOD, LATEST_DATE+1)
                     # if new data is found, the following will not be run
-                    if (len(cdata) == 0) or cdata[0]["date"] == 0:
+                    if (len(cdata) == 0) or cdata[0]["date"] <= 0:
                         # no new data
                         hasAllNewData = False
                         break
@@ -82,9 +83,11 @@ async def main():
                         # ratios = data.iloc[-1][2:] / data.iloc[-2][2:]
                         # update weights
                         ratios = ratioStrat.updateDataAndRatio(newData)
-                        weights = pamr.step(ratios, weights, update_wealth=True)
+                        weights = pamr.step(
+                            ratios, weights, update_wealth=True)
                         print("New weights: {}".format(weights))
-                        print("Theoretical percentage increase: {}".format(pamr.wealth))
+                        print("Theoretical percentage increase: {}".format(
+                            pamr.wealth))
                         pairsWeights = pairsToWeights(allPairs, weights)
                         portfolio.sendEvent(ReconfigureEvent(pairsWeights))
                         # update LATEST_DATE
@@ -136,9 +139,10 @@ if __name__ == "__main__":
     weights = pamr.train()
     print(weights)
     pairsWeights = pairsToWeights(allPairs, weights)
-    portfolio = Portfolio(p, initialPairsWeights=pairsWeights, marketBuyPercentage=MARKET_BUY_PERCENTAGE)
-    loop = asyncio.get_event_loop()
+    portfolio = Portfolio(p, initialPairsWeights=pairsWeights,
+                          marketBuyPercentage=MARKET_BUY_PERCENTAGE)
 
+    loop = asyncio.get_event_loop()
     loop.create_task(main())
     try:
         loop.run_forever()
