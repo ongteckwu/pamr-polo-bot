@@ -10,6 +10,7 @@ class RatioStrategy(ABC):
         self.dataLock = RLock()
         self.data = data[1:]  # data includes an index and a date
         self.ratios = None
+        self.latestRatio = None
         self.buildRatios()
 
     def getData(self):
@@ -25,26 +26,57 @@ class RatioStrategy(ABC):
         pass
 
     @abstractmethod
-    def updateDataAndRatio(self, row):
+    def updateData(self, row):
+        pass
+
+    @abstractmethod
+    def getLatestRatio(self):
         pass
 
 
 class BasicRatioStrategy(RatioStrategy):
-    def __init__(self, data):
+    def __init__(self, data, dataPeriod=300, chartPeriod=3600):
+        assert(chartPeriod % dataPeriod == 0,
+               "chartPeriod has to be in multiples of 300")
+        self.updateRatioTimes = chartPeriod / dataPeriod
+        self.latestBaseData = None
+        self.updateRatioCount = 0
         super().__init__(data)
 
     def buildRatios(self):
         with self.ratiosLock:
+            # data without index and date
             cleanedData = self.data.drop(self.data.columns[[0, 1]], 1)
+            rowLen = len(cleanedData.index)
+            # slice data up to chartPeriod intervals, with the last data the
+            # lead data point
+            cleanedData = cleanedData.iloc[
+                rowLen % self.updateRatioTimes:-1:self.updateRatioTimes, :]
+            # get the ratios of the chartPeriod-cut data
             self.ratios = (cleanedData / cleanedData.shift(1))[1:]
+            # set base data for use to get next ratio
+            self.latestBaseData = self.data.iloc[-1]
 
-    def updateDataAndRatio(self, row):
+    def updateData(self, row):
         with self.dataLock:
             self.data.append(row)
-            with self.ratiosLock:
-                ratio = self.data.iloc[-1][2:] / self.data.iloc[-2][2:]
+        with self.ratiosLock:
+            self.updateRatioCount += 1
+            # if ratio count is due for update
+            if self.updateRatioCount >= self.updateRatioTimes:
+                ratio = row[2:] / self.latestBaseData[2:]
+                self.latestBaseData = row
                 self.ratios.append(ratio, ignore_index=True)
-        return ratio
+                self.latestRatio = ratio
+
+    def getLatestRatio(self):
+        with self.ratiosLock:
+            # return ratios if ratios exist, if not return None
+            if self.latestRatio is not None:
+                temp = self.latestRatio
+                self.latestRatio = None
+                return temp
+        return None
 
 
 # class StaggeredRatioStrategy(RatioStrategy):

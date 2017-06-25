@@ -96,6 +96,8 @@ try:
                 if not (noOfNANs > len(allPairs) * 0.1 and noOfNANs > 3):
                     oldData = ratioStrat.getData().iloc[-1]
                     newData = newData.fillna(oldData)
+                    with open("./poloTestData.csv", "a") as f:
+                        newData.to_csv(f, header=False)
                     ratios = ratioStrat.updateDataAndRatio(newData)
                     weights = pamr.step(ratios, weights, update_wealth=True)
                     print("New weights: {}".format(weights))
