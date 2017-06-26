@@ -5,6 +5,8 @@ import asyncio
 import sys
 import ratioStrategy
 
+
+from pprint import pprint
 from time import time, sleep
 from pandas import DataFrame
 from PAMR import PAMR
@@ -15,21 +17,30 @@ from Portfolio import Portfolio, ReconfigureEvent
 log = logging.getLogger(__name__)
 logPortfolio = logging.getLogger(Portfolio.__name__)
 handler = logging.StreamHandler(sys.stderr)
-handler.setLevel(logging.DEBUG)
+handler.setLevel(logging.INFO)
 log.addHandler(handler)
 logPortfolio.addHandler(handler)
 
 # GET ALL PAIRS
 API_KEY = "8N0DP32H-UDZX8K7F-Q70NU866-BD501GE0"
 SECRET = "3fb6648662e40e9bda1d12c0b1e98236e7a7974630450a02a9a3c82c50dea15545d52cb84e6ec3fe8ef6d4d7894735766c8dd26ec6a6955d6ed541120cfaab9c"
-CHECK_PERIOD = 60
-LAST_CHECK_DATE = time() - CHECK_PERIOD
-LATEST_DATE = None
-CHART_PERIOD = 7200
-MARKET_BUY_PERCENTAGE = 0.1
+CHART_PERIOD = 300
+CHECK_PERIOD = 300
+# how much percentage of the money to market buy/sell with
+MARKET_BUY_PERCENTAGE = 0.0
+# whether to print wealth during the training phase
+PRINT_WEALTH = False
+# whether to print weights during the training phase
+PRINT_WEIGHTS = False
+# do not buy if is in simulation
+IS_SIMULATION = False
+# WRITE FILE
+IS_WRITE_TO_DATA = True
+IS_WRITE_LOG = True
 
 
 async def main():
+    global p
     global CHECK_PERIOD
     global LAST_CHECK_DATE
     global LATEST_DATE
@@ -40,60 +51,41 @@ async def main():
         while True:
             if time() - LAST_CHECK_DATE > CHECK_PERIOD:
                 print("Checking for new data... LATEST DATE: {}".format(LATEST_DATE))
-                # changed to False if not all data is present
-                hasAllNewData = True
-                newData = None
-                # to update latest date
-                nDate = None
-                for pair in allPairs:
-                    cdata = p.returnChartData(pair, CHART_PERIOD, LATEST_DATE+1)
-                    # if new data is found, the following will not be run
-                    if (len(cdata) == 0) or cdata[0]["date"] <= 0:
-                        # no new data
-                        hasAllNewData = False
-                        break
-                    else:
-                        for d in cdata:
-                            if d["date"] > LATEST_DATE:
-                                if ((nDate is None) or d["date"] > nDate):
-                                    nDate = d["date"]
+                tickers = p.returnTicker()
+                tickersWithDate = {
+                    t: float(tickers[t]["last"]) for t in tickers if t in allPairs}
+                NEW_DATE = LATEST_DATE + CHECK_PERIOD
+                print("NEW DATE: {}".format(NEW_DATE))
+                tickersWithDate["date"] = NEW_DATE
+                # update LATEST_DATE
+                LATEST_DATE = NEW_DATE
+                newData = pd.DataFrame(tickersWithDate, index=[0])
+                # rearrange the columns for the new data to fit the old
+                newData = newData[data.columns]
+                if IS_WRITE_TO_DATA:
+                    with open("./poloTestData.csv", "a") as f:
+                        newData.to_csv(f, header=False)
+                ratioStrat.updateData(newData)
+                # print(ratioStrat.getRatios())
+                ratio = ratioStrat.getLatestRatio()
+                # print(ratio)
 
-                    # if there's data (won't reach here if no data)
-                    if newData is None:
-                        newData = DataFrame.from_dict(
-                            cdata).ix[:, ['date', 'close']]
-                        newData.columns = ['date', pair]
-                    else:
-                        newDataTemp = DataFrame.from_dict(
-                            cdata).ix[:, ['date', 'close']]
-                        newDataTemp.columns = ['date', pair]
-                        newData = newData.join(
-                            newDataTemp.set_index('date'), on="date")
-
-                if hasAllNewData:
-                    # check for NANs
-                    noOfNANs = newData.isnull().sum().sum()
-                    print("Number of nans: {}".format(noOfNANs))
-                    if not (noOfNANs > len(allPairs) * 0.1 and noOfNANs > 3):
-                        oldData = ratioStrat.getData().iloc[-1]
-                        newData = newData.fillna(oldData)
-                        logging.debug("New data arrived")
-                        # update data
-                        # data.append(newData)
-                        # ratios = data.iloc[-1][2:] / data.iloc[-2][2:]
-                        # update weights
-                        ratios = ratioStrat.updateDataAndRatio(newData)
-                        weights = pamr.step(
-                            ratios, weights, update_wealth=True)
-                        print("New weights: {}".format(weights))
-                        print("Theoretical percentage increase: {}".format(
-                            pamr.wealth))
-                        pairsWeights = pairsToWeights(allPairs, weights)
+                if ratio is not None:
+                    weights = pamr.step(ratio, weights, update_wealth=True)
+                    wealthString = "Theoretical percentage increase: {}".format(
+                        pamr.wealth)
+                    if IS_WRITE_LOG:
+                        with open("./wealthText3.txt", "a") as f:
+                            f.write(wealthString + "\n")
+                    weightsString = "New weights: {}".format(weights)
+                    if IS_WRITE_LOG:
+                        with open("./weightsText3.txt", "a") as f:
+                            f.write(weightsString + "\n")
+                    print(weightsString)
+                    print(wealthString)
+                    pairsWeights = pairsToWeights(allPairs, weights)
+                    if not IS_SIMULATION:
                         portfolio.sendEvent(ReconfigureEvent(pairsWeights))
-                        # update LATEST_DATE
-                        LATEST_DATE = nDate
-                    else:
-                        print("Number of nans: {} - SKIP UPDATE".format(noOfNANs))
 
             LAST_CHECK_DATE = time()
 
@@ -112,35 +104,46 @@ if __name__ == "__main__":
     print("Pairs are:")
     print(allPairs)
 
-    # COMBINE PAIRS INTO ONE DATAFRAME
     print("Downloading data from Poloniex")
+    # Downloads new data from Poloniex
     firstPair = False
     if True:
         for pair in allPairs:
             if not firstPair:
                 data = DataFrame.from_dict(p.returnChartData(
-                    pair, CHART_PERIOD, time() - 2 * p.MONTH)).ix[:, ['date', 'close']]
+                    pair, CHECK_PERIOD, time() - 2 * p.MONTH)).ix[:, ['date', 'close']]
                 data.columns = ['date', pair]
                 firstPair = True
             else:
                 newData = DataFrame.from_dict(p.returnChartData(
-                    pair, CHART_PERIOD, time() - 2 * p.MONTH)).ix[:, ['date', 'close']]
+                    pair, CHECK_PERIOD, time() - 2 * p.MONTH)).ix[:, ['date', 'close']]
                 newData.columns = ['date', pair]
                 data = data.join(newData.set_index('date'), on="date")
 
-        data.to_csv("poloTestData.csv")
+        data.to_csv("poloTestData3.csv")
     # GET LATEST DATE
-    data = pd.read_csv("./poloTestData.csv")
+    data = pd.read_csv("./poloTestData3.csv", index_col=0)
+    # print(data)
+    print(data)
+    # get latest date for reference
     LATEST_DATE = data["date"].iloc[-1]
 
+    # to sync the data by syncing the last check date with the latest date
+    LAST_CHECK_DATE = LATEST_DATE
+
+    # remove NANs in the data
     data = cleanNANs(data)
-    ratioStrat = ratioStrategy.BasicRatioStrategy(data)
+    ratioStrat = ratioStrategy.BasicRatioStrategy(
+        data, dataPeriod=CHECK_PERIOD, chartPeriod=CHART_PERIOD)
+    # run the pamr algo
     pamr = PAMR(ratios=ratioStrat.getRatios())
-    weights = pamr.train()
-    print(weights)
+    weights = pamr.train(update_wealth=PRINT_WEALTH,
+                         print_weights=PRINT_WEIGHTS)
+    # print(weights)
     pairsWeights = pairsToWeights(allPairs, weights)
-    portfolio = Portfolio(p, initialPairsWeights=pairsWeights,
-                          marketBuyPercentage=MARKET_BUY_PERCENTAGE)
+    if not IS_SIMULATION:
+        portfolio = Portfolio(p, initialPairsWeights=pairsWeights,
+                              marketBuyPercentage=MARKET_BUY_PERCENTAGE)
 
     loop = asyncio.get_event_loop()
     loop.create_task(main())

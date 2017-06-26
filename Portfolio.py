@@ -11,15 +11,15 @@ from concurrent.futures import ThreadPoolExecutor
 from queue import Queue, Empty
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
+log.setLevel(logging.DEBUG)
 
 
 class PortfolioEvent(object):
+    # Basic event object
     pass
 
 
 class ReconfigureEvent(PortfolioEvent):
-
     def __init__(self, pairsWeights):
         assert(0.99 <= sum(pairsWeights.values()) <= 1.01,
                "Weights do not sum up to 1")
@@ -45,25 +45,16 @@ class Portfolio(object):
     class PortfolioMisconfiguredException(Exception):
         pass
 
-    def __init__(self, poloObj, initialPairsWeights, marketBuyPercentage=0.1, pairs=None, isSimulation=False):
-        # if not poloObj.key:
-        #   raise PortfolioMisconfiguredException("No key in poloObj")
+    def __init__(self, poloObj, initialPairsWeights, marketBuyPercentage=0.1, pairs=None):
+        if not poloObj.key:
+            raise PortfolioMisconfiguredException("No key in poloObj")
         # amount to market buy every round
         self.marketBuyPercentage = marketBuyPercentage
         self.polo = poloObj
         self.waitTimeBetweenOrders = self.polo.MINUTE
-        self.isSimulation = isSimulation
-        while True:
-            balances = self.polo.returnCompleteBalances()
-            if "error" in balances:
-                log.debug(
-                    "Error in _eventRun: can't obtain complete balances")
-            else:
-                break
-        self.amount = float(balances["BTC"]["btcValue"])
+        self.amount = None
 
         self.buySellRetryTimes = 10
-
         # the more sell coroutines there are, the slower the buy coroutines
         # retry duration
         self.buyRetryDuration = 1.0
@@ -71,6 +62,7 @@ class Portfolio(object):
         self.mainLoop = asyncio.get_event_loop()
         self.buyTasks = []
         self.sellTasks = []
+        # for cancellation upon shutdown
         self.pairsOnOrder = set()
 
         self.orderSetLock = RLock()
@@ -121,8 +113,6 @@ class Portfolio(object):
                     if isinstance(event, StartEvent):
                         # update pairs, for cancellation purposes
                         self.pairs = event.pairsWeights.keys()
-                        # await self.__buyAllPairs(Portfolio.getPairAmount(
-                        #     self.amount, event.pairsWeights))
 
                     elif isinstance(event, ReconfigureEvent):
                         # update pairs, for cancellation purposes
@@ -137,7 +127,7 @@ class Portfolio(object):
                                 await self.__cancelTasks(self.sellTasks)
                                 self.sellTasks = []
 
-                        # reset orders set
+                        # reset orders set (for cancellation upon shutdown)
                         with self.orderSetLock:
                             self.pairsOnOrder = set()
 
@@ -179,7 +169,7 @@ class Portfolio(object):
                     pairAmountDifference = Portfolio.getPairAmountDifference(
                         currentPairAmount, previousPairAmount)
                     log.debug("Pair amount difference {}:".format(
-                        {k: pairAmountDifference[k] for k in pairAmountDifference if pairAmountDifference[k] != 0.0}))
+                        {k: pairAmountDifference[k] for k in pairAmountDifference if abs(pairAmountDifference[k]) > 0.0001}))
 
                     # buy or sell base on amount differences
                     buyPairs = {}
@@ -238,7 +228,6 @@ class Portfolio(object):
 
         with self.orderSetLock:
             self.pairsOnOrder.update(pairsOnOrder)
-
 
     async def __cancelTasks(self, tasks):
         print("Cancelling tasks...")
@@ -337,7 +326,7 @@ class Portfolio(object):
                 numberOfOpenOrders += 1
                 retry = True
                 retryCount = 0
-                while retry != False:
+                while retry is not False:
                     retry = False
                     try:
                         cancellationMessage = self.polo.cancelOrder(orderNo)

@@ -35,10 +35,10 @@ class RatioStrategy(ABC):
 
 
 class BasicRatioStrategy(RatioStrategy):
-    def __init__(self, data, dataPeriod=300, chartPeriod=3600):
+    def __init__(self, data, dataPeriod=300, chartPeriod=300):
         assert(chartPeriod % dataPeriod == 0,
                "chartPeriod has to be in multiples of 300")
-        self.updateRatioTimes = chartPeriod / dataPeriod
+        self.updateRatioTimes = int(chartPeriod / dataPeriod)
         self.latestBaseData = None
         self.updateRatioCount = 0
         super().__init__(data)
@@ -46,7 +46,7 @@ class BasicRatioStrategy(RatioStrategy):
     def buildRatios(self):
         with self.ratiosLock:
             # data without index and date
-            cleanedData = self.data.drop(self.data.columns[[0, 1]], 1)
+            cleanedData = self.data.drop("date", 1)
             rowLen = len(cleanedData.index)
             # slice data up to chartPeriod intervals, with the last data the
             # lead data point
@@ -59,15 +59,17 @@ class BasicRatioStrategy(RatioStrategy):
 
     def updateData(self, row):
         with self.dataLock:
-            self.data.append(row)
+            self.data = self.data.append(row, ignore_index=True)
         with self.ratiosLock:
             self.updateRatioCount += 1
             # if ratio count is due for update
             if self.updateRatioCount >= self.updateRatioTimes:
-                ratio = row[2:] / self.latestBaseData[2:]
-                self.latestBaseData = row
+                # removes the date column
+                ratio = self.data.iloc[-1][1:] / self.latestBaseData[1:]
+                self.latestBaseData = self.data.iloc[-1]
                 self.ratios.append(ratio, ignore_index=True)
                 self.latestRatio = ratio
+                self.updateRatioCount = 0
 
     def getLatestRatio(self):
         with self.ratiosLock:

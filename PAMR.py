@@ -55,13 +55,13 @@ class PAMR(object):
             return self.fee()
         return self.fee
 
-    def step(self, x, last_b, update_wealth=True):
+    def step(self, x, last_b, update_wealth=False):
         with self.lock:
             # calculate return prediction
             if update_wealth:
                 self.wealth = self.wealth * \
                     x.dot(last_b) * (1 - self.get_fee())
-                # print("Wealth: {}".format(self.wealth))
+                print("Wealth: {}".format(self.wealth))
             b = self.update(last_b, x, self.eps, self.C)
             # print(b)
         return b
@@ -88,12 +88,13 @@ class PAMR(object):
         # project it onto simplex
         return tools.simplex_proj(b)
 
-    def train(self, update_wealth=False):
+    def train(self, update_wealth=False, print_weights=False):
         with self.lock:
             b = self.init_weights(len(self.ratios.columns))
             for index, row in self.ratios.iterrows():
                 b = self.step(row, b, update_wealth)
-                # print(b)
+                if print_weights:
+                    print(b)
             return b
 
 
