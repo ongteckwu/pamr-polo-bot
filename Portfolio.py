@@ -169,7 +169,7 @@ class Portfolio(object):
                     pairAmountDifference = Portfolio.getPairAmountDifference(
                         currentPairAmount, previousPairAmount)
                     log.debug("Pair amount difference {}:".format(
-                        {k: pairAmountDifference[k] for k in pairAmountDifference if abs(pairAmountDifference[k]) > 0.0001}))
+                        {k: pairAmountDifference[k] for k in pairAmountDifference if abs(pairAmountDifference[k]) != 0.0}))
 
                     # buy or sell base on amount differences
                     buyPairs = {}
@@ -380,15 +380,20 @@ class Portfolio(object):
                 # next
                 actualWeight = 0
                 pricesAndAmount = []
+                grandTotal = 0
                 for (price, weight) in Portfolio.determinePrices(orderBookBids, orderBookAsks,
                                                                  self.marketBuyPercentage, "sell"):
                     # if total < 0.0001, stack the pair with the next
                     actualWeight += weight
                     total = actualWeight * amountLeftToOrder * 0.99
+                    grandTotal += total
                     if total > 0.0001:
                         pricesAndAmount.append((price, total / price))
                         # reset actualWeight for the next pair
                         actualWeight = 0
+
+                if grandTotal <= 0.0001:
+                    break
 
                 for (price, amt) in pricesAndAmount:
                     retry = True
@@ -439,6 +444,7 @@ class Portfolio(object):
                 self.buyRetryDuration *= 0.5
 
         except asyncio.CancelledError:
+            await self.__cancelOrder(pair, "sell")
             # LOG
             log.debug(
                 ">> Coroutine: __sellCoroutine for {} cancelled".format(pair))
@@ -463,16 +469,21 @@ class Portfolio(object):
                 # if the value put on order < 0.0001, stack the order with the
                 # next
                 actualWeight = 0
+                grandTotal = 0
                 pricesAndAmount = []
                 for (price, weight) in Portfolio.determinePrices(orderBookBids, orderBookAsks,
                                                                  self.marketBuyPercentage, "buy"):
                     # if total < 0.0001, stack the pair with the next
                     actualWeight += weight
                     total = actualWeight * amountLeftToOrder * 0.99
+                    grandTotal += total
                     if total > 0.0001:
                         pricesAndAmount.append((price, total / price))
                         # reset actualWeight for the next pair
                         actualWeight = 0
+
+                if grandTotal <= 0.0001:
+                    break
 
                 for (price, amt) in pricesAndAmount:
                     retry = True
@@ -518,6 +529,7 @@ class Portfolio(object):
             # amountToPlay all went through into orders
             log.info("BUY: orders for {} all went through".format(pair))
         except asyncio.CancelledError:
+            await self.__cancelOrder(pair, "buy")
             # LOG
             log.debug(
                 ">> Coroutine: __buyCoroutine for {} cancelled".format(pair))
