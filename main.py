@@ -24,10 +24,10 @@ logPortfolio.addHandler(handler)
 # GET ALL PAIRS
 API_KEY = "8N0DP32H-UDZX8K7F-Q70NU866-BD501GE0"
 SECRET = "3fb6648662e40e9bda1d12c0b1e98236e7a7974630450a02a9a3c82c50dea15545d52cb84e6ec3fe8ef6d4d7894735766c8dd26ec6a6955d6ed541120cfaab9c"
-CHART_PERIOD = 300
+CHART_PERIOD = 7200
 CHECK_PERIOD = 300
 # how much percentage of the money to market buy/sell with
-MARKET_BUY_PERCENTAGE = 0.0
+MARKET_BUY_PERCENTAGE = 0.2
 # whether to print wealth during the training phase
 PRINT_WEALTH = False
 # whether to print weights during the training phase
@@ -36,6 +36,7 @@ PRINT_WEIGHTS = False
 IS_SIMULATION = False
 # WRITE FILE
 IS_WRITE_TO_DATA = True
+# WRITE WEALTH AND WEIGHTS
 IS_WRITE_LOG = True
 
 

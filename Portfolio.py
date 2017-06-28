@@ -362,7 +362,7 @@ class Portfolio(object):
         # increase buy coroutine retry duration to prevent hogging of CPU by buy coroutines
         # that cannot buy due to insufficient funds
         with self.buyRetryDurationLock:
-            self.buyRetryDuration *= 2
+            self.buyRetryDuration *= 1.5
 
         try:
             while True:
@@ -441,7 +441,7 @@ class Portfolio(object):
 
             # reduce buy duration once sell coroutine is done selling
             with self.buyRetryDurationLock:
-                self.buyRetryDuration *= 0.5
+                self.buyRetryDuration /= 1.5
 
         except asyncio.CancelledError:
             await self.__cancelOrder(pair, "sell")
