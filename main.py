@@ -54,7 +54,9 @@ async def main():
                 print("Checking for new data... LATEST DATE: {}".format(LATEST_DATE))
                 tickers = p.returnTicker()
                 tickersWithDate = {
-                    t: float(tickers[t]["last"]) for t in tickers if t in allPairs}
+                    t: ((float(tickers[t]["lowestAsk"]) +
+                         float(tickers[t]["highestBid"])) / 2) for t
+                    in tickers if t in allPairs}
                 NEW_DATE = LATEST_DATE + CHECK_PERIOD
                 print("NEW DATE: {}".format(NEW_DATE))
                 tickersWithDate["date"] = NEW_DATE
