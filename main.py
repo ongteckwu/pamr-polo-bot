@@ -4,7 +4,8 @@ import logging
 import asyncio
 import sys
 import ratioStrategy
-
+import logger
+import configparser
 
 from pprint import pprint
 from time import time, sleep
@@ -13,31 +14,23 @@ from PAMR import PAMR
 from utilities import cleanNANs, pairsToWeights
 from Portfolio import Portfolio, ReconfigureEvent
 
-
-log = logging.getLogger(__name__)
-logPortfolio = logging.getLogger(Portfolio.__name__)
-handler = logging.StreamHandler(sys.stderr)
-handler.setLevel(logging.INFO)
-log.addHandler(handler)
-logPortfolio.addHandler(handler)
+config = configparser.ConfigParser()
+config.read("./config.ini")
+LOG = logger.Logger(config["LOGGING"])
+# sections should have TRADING, DATA, and LOGGING
 
 # GET ALL PAIRS
-API_KEY = "8N0DP32H-UDZX8K7F-Q70NU866-BD501GE0"
-SECRET = "3fb6648662e40e9bda1d12c0b1e98236e7a7974630450a02a9a3c82c50dea15545d52cb84e6ec3fe8ef6d4d7894735766c8dd26ec6a6955d6ed541120cfaab9c"
-CHART_PERIOD = 7200
-CHECK_PERIOD = 300
+API_KEY = config["TRADING"]["API_KEY"]
+SECRET = config["TRADING"]["SECRET"]
+CHART_PERIOD = int(config["DATA"]["CHART_PERIOD"])
+CHECK_PERIOD = int(config["DATA"]["CHECK_PERIOD"])
 # how much percentage of the money to market buy/sell with
-MARKET_BUY_PERCENTAGE = 0.2
-# whether to print wealth during the training phase
-PRINT_WEALTH = False
-# whether to print weights during the training phase
-PRINT_WEIGHTS = False
-# do not buy if is in simulation
-IS_SIMULATION = False
-# WRITE FILE
-IS_WRITE_TO_DATA = True
-# WRITE WEALTH AND WEIGHTS
-IS_WRITE_LOG = True
+MARKET_BUY_PERCENTAGE = float(config["TRADING"]["MARKET_BUY_PERCENTAGE"])
+DOWNLOAD_DATA = config["DATA"].getboolean("DOWNLOAD_DATA")
+IS_WRITE_DATA = config["DATA"].getboolean("WRITE_NEW_DATA")
+DATA_FILE = config["DATA"]["DATA_FILE"]
+IS_SIMULATION = config["TRADING"].getboolean("IS_SIMULATION")
+SIMULATION_AMOUNT = float(config["TRADING"]["SIMULATION_AMOUNT"])
 
 
 async def main():
@@ -46,6 +39,7 @@ async def main():
     global LAST_CHECK_DATE
     global LATEST_DATE
     global CHART_PERIOD
+    global WRITE_DATA_STREAM
     global weights
     global ratioStrat
     try:
@@ -65,9 +59,8 @@ async def main():
                 newData = pd.DataFrame(tickersWithDate, index=[0])
                 # rearrange the columns for the new data to fit the old
                 newData = newData[data.columns]
-                if IS_WRITE_TO_DATA:
-                    with open("./poloTestData.csv", "a") as f:
-                        newData.to_csv(f, header=False)
+                if IS_WRITE_DATA:
+                    newData.to_csv(WRITE_DATA_STREAM, header=False)
                 ratioStrat.updateData(newData)
                 # print(ratioStrat.getRatios())
                 ratio = ratioStrat.getLatestRatio()
@@ -75,20 +68,23 @@ async def main():
 
                 if ratio is not None:
                     weights = pamr.step(ratio, weights, update_wealth=True)
-                    wealthString = "Theoretical percentage increase: {}".format(
-                        pamr.wealth)
-                    if IS_WRITE_LOG:
-                        with open("./wealthText3.txt", "a") as f:
-                            f.write(wealthString + "\n")
-                    weightsString = "New weights: {}".format(weights)
-                    if IS_WRITE_LOG:
-                        with open("./weightsText3.txt", "a") as f:
-                            f.write(weightsString + "\n")
-                    print(weightsString)
-                    print(wealthString)
+                    print("Theoretical percentage increase: {}".format(
+                        pamr.wealth))
+                    if LOG["LOG_WEALTH"]:
+                        if LOG.checkFileEmpty("LOG_WEALTH"):
+                            LOG.writeToFile("wealth, date")
+                        LOG.writeToFile("LOG_WEALTH", str(
+                            pamr.wealth) + "," + str(time))
+                    print("New weights: {}".format(weights))
+                    if LOG["LOG_WEIGHTS"]:
+                        if LOG.checkFileEmpty("LOG_WEIGHTS"):
+                            LOG.writeToFile(
+                                "LOG_WEIGHTS", weights.to_csv(header=True))
+                        else:
+                            LOG.writeToFile(
+                                "LOG_WEIGHTS", weights.to_csv(header=False))
                     pairsWeights = pairsToWeights(allPairs, weights)
-                    if not IS_SIMULATION:
-                        portfolio.sendEvent(ReconfigureEvent(pairsWeights))
+                    portfolio.sendEvent(ReconfigureEvent(pairsWeights))
 
             LAST_CHECK_DATE = time()
 
@@ -110,7 +106,7 @@ if __name__ == "__main__":
     print("Downloading data from Poloniex")
     # Downloads new data from Poloniex
     firstPair = False
-    if True:
+    if DOWNLOAD_DATA:
         for pair in allPairs:
             if not firstPair:
                 data = DataFrame.from_dict(p.returnChartData(
@@ -123,30 +119,34 @@ if __name__ == "__main__":
                 newData.columns = ['date', pair]
                 data = data.join(newData.set_index('date'), on="date")
 
-        data.to_csv("poloTestData3.csv")
+        # HACKISH
+        data.to_csv(DATA_FILE)
     # GET LATEST DATE
-    data = pd.read_csv("./poloTestData3.csv", index_col=0)
-    # print(data)
-    print(data)
+    data = pd.read_csv(DATA_FILE, index_col=0)
+    # if write new data
+    if IS_WRITE_DATA:
+        WRITE_DATA_STREAM = open(DATA_FILE, 'a')
+
     # get latest date for reference
     LATEST_DATE = data["date"].iloc[-1]
 
     # to sync the data by syncing the last check date with the latest date
     LAST_CHECK_DATE = LATEST_DATE
-
     # remove NANs in the data
     data = cleanNANs(data)
+    print(data)
     ratioStrat = ratioStrategy.BasicRatioStrategy(
         data, dataPeriod=CHECK_PERIOD, chartPeriod=CHART_PERIOD)
     # run the pamr algo
     pamr = PAMR(ratios=ratioStrat.getRatios())
-    weights = pamr.train(update_wealth=PRINT_WEALTH,
-                         print_weights=PRINT_WEIGHTS)
-    # print(weights)
+    weights = pamr.train()
+    print(weights)
     pairsWeights = pairsToWeights(allPairs, weights)
-    if not IS_SIMULATION:
-        portfolio = Portfolio(p, initialPairsWeights=pairsWeights,
-                              marketBuyPercentage=MARKET_BUY_PERCENTAGE)
+    portfolio = Portfolio(p, initialPairsWeights=pairsWeights,
+                          marketBuyPercentage=MARKET_BUY_PERCENTAGE,
+                          logger=LOG,
+                          isSimulation=IS_SIMULATION,
+                          simulationAmount=SIMULATION_AMOUNT)
 
     loop = asyncio.get_event_loop()
     loop.create_task(main())

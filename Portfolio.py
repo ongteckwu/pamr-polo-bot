@@ -1,6 +1,5 @@
 import poloniex
 import asyncio
-import logging
 import signal
 import functools
 
@@ -9,9 +8,8 @@ from threading import RLock
 from threading import Thread
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue, Empty
-
-log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
+from time import time
+from collections import defaultdict
 
 
 class PortfolioEvent(object):
@@ -45,19 +43,33 @@ class Portfolio(object):
     class PortfolioMisconfiguredException(Exception):
         pass
 
-    def __init__(self, poloObj, initialPairsWeights, marketBuyPercentage=0.1, pairs=None):
+    def __init__(self, poloObj, initialPairsWeights, marketBuyPercentage, logger, isSimulation=False, simulationAmount=1.0, pairs=None):
         if not poloObj.key:
             raise PortfolioMisconfiguredException("No key in poloObj")
         # amount to market buy every round
         self.marketBuyPercentage = marketBuyPercentage
         self.polo = poloObj
         self.waitTimeBetweenOrders = self.polo.MINUTE
-        self.amount = None
+        self.isSimulation = isSimulation
+        if self.isSimulation:
+            self.amount = simulationAmount
+            self.balances = defaultdict(int)
+            self.balances["BTC"] = self.amount
+        else:
+            self.amount = None
+        self.logger = logger
+        if self.logger["LOG_TRANSACTION"]:
+            self.logger.writeToFile(
+                "LOG_TRANSACTION", "type,pair,amount,price,btc,date")
+        if self.logger["LOG_AMOUNT"]:
+            self.logger.writeToFile(
+                "LOG_AMOUNT", "amount,date")
 
         self.buySellRetryTimes = 10
         # the more sell coroutines there are, the slower the buy coroutines
         # retry duration
         self.buyRetryDuration = 1.0
+        self.eventLoopSleepTime = 30.0
 
         self.mainLoop = asyncio.get_event_loop()
         self.buyTasks = []
@@ -96,17 +108,15 @@ class Portfolio(object):
         # prevAmount != 0 && prevAmount < currentAmount => buyTillComplete
         # currentAmount == 0 && prevAmount > currentAmount => sellAll
         # currentAmount != 0 && prevAmount > currentAmount => sellPartial
-        sleepTime = 30
         try:
             while True:
                 try:
                     event = self.eventQueue.get_nowait()
                 except Empty:
-                    # log.debug("Main event loop sleeping for {} seconds...".format(sleepTime))
-                    await asyncio.sleep(sleepTime)
+                    await asyncio.sleep(self.eventLoopSleepTime)
                     continue
 
-                log.debug(
+                self.logger.debug(
                     "Event: {} obtained from event queue".format(event))
 
                 if isinstance(event, PortfolioEvent):
@@ -131,36 +141,43 @@ class Portfolio(object):
                         with self.orderSetLock:
                             self.pairsOnOrder = set()
 
-                    # get current balance in btc value
-                    while True:
-                        balances = self.polo.returnCompleteBalances()
-                        if "error" in balances:
-                            log.info(
-                                "Error in _eventRun: can't obtain complete balances")
-                        else:
-                            break
+                    if self.isSimulation:
+                        previousPairAmount = self.balances
+                        self.amount = sum(self.balances.values())
+                        if self.logger["LOG_AMOUNT"]:
+                            self.logger.writeToFile("LOG_AMOUNT", str(
+                                self.amount) + "," + str(time()))
+                    else:
+                        while True:
+                            balances = self.polo.returnCompleteBalances()
+                            if "error" in balances:
+                                self.logger.info(
+                                    "Error in _eventRun: can't obtain complete balances")
+                            else:
+                                break
 
-                    # get previous pair amount
-                    previousPairAmount = {}
-                    currentAmount = float(balances["BTC"]["btcValue"])
-                    for pair in self.pairs:
-                        ticker = pair[4:]
-                        if ticker in balances:
-                            previousPairAmount[pair] = float(
-                                balances[ticker]["btcValue"])
-                            currentAmount += float(
-                                balances[ticker]["btcValue"])
-                        else:
-                            log.debug(
-                                "previousPairAmount computation: ticker {} not in balances. Pair: {}".format(ticker, pair))
+                        # get previous pair amount
+                        previousPairAmount = {}
+                        currentAmount = float(balances["BTC"]["btcValue"])
+                        for pair in self.pairs:
+                            ticker = pair[4:]
+                            if ticker in balances:
+                                previousPairAmount[pair] = float(
+                                    balances[ticker]["btcValue"])
+                                currentAmount += float(
+                                    balances[ticker]["btcValue"])
+                            else:
+                                self.logger.debug(
+                                    "previousPairAmount computation: ticker {} not in balances. Pair: {}".format(ticker, pair))
 
-                    # update self.amount for logging purposes
-                    self.amount = currentAmount
+                        # update self.amount for logging purposes
+                        self.amount = currentAmount
+
                     if isinstance(event, StartEvent):
-                        log.debug(
+                        self.logger.debug(
                             "Starting account value: {}".format(self.amount))
                     elif isinstance(event, ReconfigureEvent):
-                        log.debug(
+                        self.logger.debug(
                             "Current account value: {}".format(self.amount))
 
                     currentPairAmount = Portfolio.getPairAmount(
@@ -168,7 +185,7 @@ class Portfolio(object):
 
                     pairAmountDifference = Portfolio.getPairAmountDifference(
                         currentPairAmount, previousPairAmount)
-                    log.debug("Pair amount difference {}:".format(
+                    self.logger.debug("Pair amount difference {}:".format(
                         {k: pairAmountDifference[k] for k in pairAmountDifference if abs(pairAmountDifference[k]) != 0.0}))
 
                     # buy or sell base on amount differences
@@ -184,7 +201,7 @@ class Portfolio(object):
 
         except asyncio.CancelledError:
             # LOG
-            log.debug(
+            self.logger.debug(
                 ">> Coroutine: __eventRun cancelled")
 
     @staticmethod
@@ -245,10 +262,11 @@ class Portfolio(object):
             await self.__cancelTasks(tasks=tasks)
 
             # cancel all orders
-            print("Cancelling all orders...")
-            for pair in self.pairsOnOrder:
-                print("Cancelling orders on {}...".format(pair))
-                await self.__cancelOrder(pair)
+            if not self.isSimulation:
+                print("Cancelling all orders...")
+                for pair in self.pairsOnOrder:
+                    print("Cancelling orders on {}...".format(pair))
+                    await self.__cancelOrder(pair)
 
             self.mainLoop.stop()
 
@@ -336,12 +354,12 @@ class Portfolio(object):
                                 retryCancellation = True
                                 break
                             retryCount += 1
-                            log.info(
+                            self.logger.debug(
                                 "Cancellation of order for {} failed".format(pair))
                             if withYield:
                                 await asyncio.sleep(1.0)
                             continue
-                        log.info(
+                        self.logger.debug(
                             "Cancellation of order for {} successful".format(pair))
                     except Exception:
                         retry = True
@@ -349,7 +367,7 @@ class Portfolio(object):
                             retryCancellation = True
                             break
                         retryCount += 1
-                        log.info(
+                        self.logger.debug(
                             "Cancellation of order for {} failed".format(pair))
                         if withYield:
                             await asyncio.sleep(1.0)
@@ -357,7 +375,7 @@ class Portfolio(object):
 
     async def __sellCoroutine(self, pair, amountToSell):
         amountLeftToOrder = amountToSell
-        log.debug(
+        self.logger.debug(
             "SELL: amount to play for {}: {}".format(pair, amountToSell))
         # increase buy coroutine retry duration to prevent hogging of CPU by buy coroutines
         # that cannot buy due to insufficient funds
@@ -398,34 +416,46 @@ class Portfolio(object):
                 for (price, amt) in pricesAndAmount:
                     retry = True
                     # place bids
-                    while retry is not False:
-                        retry = False
-                        try:
-                            # {"orderNumber":31226040,"resultingTrades":[{"amount":"338.8732","date":"2014-10-18 23:03:21","rate":"0.00000173","total":"0.00058625","tradeID":"16164","type":"buy"}]}
-                            order = self.polo.sell(
-                                pair, price, amt)
-                            if "error" in order:
-                                log.info(
-                                    "Error: {}".format(order["error"]))
-                                log.info(
+                    if self.isSimulation:
+                        self.logger.debug(
+                            "{} of {} bought at {} - amt in btc: {}".format(amt, pair, price, price * amt))
+                        if self.logger["LOG_TRANSACTION"]:
+                            self.logger.writeToFile("LOG_TRANSACTION", "sell,{},{},{},{},{}".format(
+                                pair, amt, price, price * amt, time()))
+                        self.balances["BTC"] += price * amt
+                        self.balances[pair] -= price * amt
+                    else:
+                        while retry is not False:
+                            retry = False
+                            try:
+                                # {"orderNumber":31226040,"resultingTrades":[{"amount":"338.8732","date":"2014-10-18 23:03:21","rate":"0.00000173","total":"0.00058625","tradeID":"16164","type":"buy"}]}
+                                order = self.polo.sell(
+                                    pair, price, amt)
+                                if "error" in order:
+                                    self.logger.debug(
+                                        "Error: {}".format(order["error"]))
+                                    self.logger.debug(
+                                        "Retrying sell bidding for {}: price {} amt {}".format(pair, price, amt))
+                                    retry = True
+                                    await asyncio.sleep(1.0)
+                                    continue
+                                else:
+                                    self.logger.debug(
+                                        "Sell order placed for {}".format(pair))
+                            except Exception as e:
+                                self.logger.debug(e)
+                                if str(e).startswith("Total must be at least"):
+                                    break
+                                amt = amt * 0.5
+                                self.logger.debug(
                                     "Retrying sell bidding for {}: price {} amt {}".format(pair, price, amt))
                                 retry = True
                                 await asyncio.sleep(1.0)
                                 continue
-                            else:
-                                log.info(
-                                    "Sell order placed for {}".format(pair))
-                        except Exception as e:
-                            log.info(e)
-                            if str(e).startswith("Total must be at least"):
-                                break
-                            amt = amt * 0.5
-                            log.info(
-                                "Retrying sell bidding for {}: price {} amt {}".format(pair, price, amt))
-                            retry = True
-                            await asyncio.sleep(1.0)
-                            continue
-                            # cancel bids and retry
+                                # cancel bids and retry
+
+                if self.isSimulation:
+                    break
 
                 await asyncio.sleep(self.waitTimeBetweenOrders)
 
@@ -437,7 +467,8 @@ class Portfolio(object):
                     break
 
             # amountToSell all went through into orders
-            log.info("SELL: orders for {} all went through".format(pair))
+            self.logger.debug(
+                "SELL: orders for {} all went through".format(pair))
 
             # reduce buy duration once sell coroutine is done selling
             with self.buyRetryDurationLock:
@@ -446,12 +477,12 @@ class Portfolio(object):
         except asyncio.CancelledError:
             await self.__cancelOrder(pair, "sell")
             # LOG
-            log.debug(
+            self.logger.debug(
                 ">> Coroutine: __sellCoroutine for {} cancelled".format(pair))
 
     async def __buyCoroutine(self, pair, amountToPlay):
         amountLeftToOrder = amountToPlay
-        log.debug(
+        self.logger.debug(
             "BUY: amount to play for {}: {}".format(pair, amountToPlay))
         try:
             # if retry times more than N, break coroutine
@@ -488,48 +519,61 @@ class Portfolio(object):
                 for (price, amt) in pricesAndAmount:
                     retry = True
                     # place bids
-                    while retry is not False:
-                        retry = False
-                        try:
-                            # {"orderNumber":31226040,"resultingTrades":[{"amount":"338.8732","date":"2014-10-18 23:03:21","rate":"0.00000173","total":"0.00058625","tradeID":"16164","type":"buy"}]}
-                            order = self.polo.buy(
-                                pair, price, amt)
-                            if "error" in order:
-                                log.info(
-                                    "Error: {}".format(order["error"]))
-                                log.info(
+                    if self.isSimulation:
+                        self.logger.debug(
+                            "{} of {} bought at {} - amt in btc: {}".format(amt, pair, price, price * amt))
+                        if self.logger["LOG_TRANSACTION"]:
+                            self.logger.writeToFile("LOG_TRANSACTION", "buy,{},{},{},{},{}".format(
+                                pair, amt, price, price * amt, time()))
+                        self.balances["BTC"] -= price * amt
+                        self.balances[pair] += price * amt
+                    else:
+                        while retry is not False:
+                            retry = False
+                            try:
+                                # {"orderNumber":31226040,"resultingTrades":[{"amount":"338.8732","date":"2014-10-18 23:03:21","rate":"0.00000173","total":"0.00058625","tradeID":"16164","type":"buy"}]}
+                                order = self.polo.buy(
+                                    pair, price, amt)
+                                if "error" in order:
+                                    self.logger.debug(
+                                        "Error: {}".format(order["error"]))
+                                    self.logger.debug(
+                                        "Retrying buy bidding for {}: price {} amt {}".format(pair, price, amt))
+                                    retry = True
+                                    await asyncio.sleep(self.buyRetryDuration)
+                                    continue
+                                else:
+                                    self.logger.debug(
+                                        "Buy order placed for {}".format(pair))
+                            except Exception as e:
+                                self.logger.debug(e)
+                                if str(e).startswith("Total must be at least"):
+                                    break
+                                amt = amt * 0.5
+                                self.logger.debug(
                                     "Retrying buy bidding for {}: price {} amt {}".format(pair, price, amt))
                                 retry = True
                                 await asyncio.sleep(self.buyRetryDuration)
                                 continue
-                            else:
-                                log.info(
-                                    "Buy order placed for {}".format(pair))
-                        except Exception as e:
-                            log.info(e)
-                            if str(e).startswith("Total must be at least"):
-                                break
-                            amt = amt * 0.5
-                            log.info(
-                                "Retrying buy bidding for {}: price {} amt {}".format(pair, price, amt))
-                            retry = True
-                            await asyncio.sleep(self.buyRetryDuration)
-                            continue
                             # cancel bids and retry
-                log.info("Buy coroutine for {} sleeping...".format(pair))
+                if self.isSimulation:
+                    break
+
                 await asyncio.sleep(self.waitTimeBetweenOrders)
 
                 # cancel all orders and
                 # update amountLeftToOrder
+
                 numberOfOrdersCancelled = await self.__cancelOrder(pair, "buy")
                 # stop coroutine since everything is filled
                 if (numberOfOrdersCancelled <= 0):
                     break
 
             # amountToPlay all went through into orders
-            log.info("BUY: orders for {} all went through".format(pair))
+            self.logger.debug(
+                "BUY: orders for {} all went through".format(pair))
         except asyncio.CancelledError:
             await self.__cancelOrder(pair, "buy")
             # LOG
-            log.debug(
+            self.logger.debug(
                 ">> Coroutine: __buyCoroutine for {} cancelled".format(pair))
