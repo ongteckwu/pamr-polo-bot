@@ -99,7 +99,7 @@ if __name__ == "__main__":
     p = poloniex.Poloniex(API_KEY, SECRET)
 
     allPairs = [a for a in p.returnTicker().keys() if a.startswith("BTC")
-                and not a.endswith("GNO")]
+                and not (a.endswith("GNO") or a.endswith("EMC2"))]
     print("Pairs are:")
     print(allPairs)
 
@@ -110,12 +110,12 @@ if __name__ == "__main__":
         for pair in allPairs:
             if not firstPair:
                 data = DataFrame.from_dict(p.returnChartData(
-                    pair, CHECK_PERIOD, time() - 2 * p.MONTH)).ix[:, ['date', 'close']]
+                    pair, CHECK_PERIOD, time() - p.MONTH)).ix[:, ['date', 'close']]
                 data.columns = ['date', pair]
                 firstPair = True
             else:
                 newData = DataFrame.from_dict(p.returnChartData(
-                    pair, CHECK_PERIOD, time() - 2 * p.MONTH)).ix[:, ['date', 'close']]
+                    pair, CHECK_PERIOD, time() - p.MONTH)).ix[:, ['date', 'close']]
                 newData.columns = ['date', pair]
                 data = data.join(newData.set_index('date'), on="date")
 
@@ -133,8 +133,9 @@ if __name__ == "__main__":
     # to sync the data by syncing the last check date with the latest date
     LAST_CHECK_DATE = LATEST_DATE
     # remove NANs in the data
-    data = cleanNANs(data)
     print(data)
+    data = cleanNANs(data)
+    
     ratioStrat = ratioStrategy.BasicRatioStrategy(
         data, dataPeriod=CHECK_PERIOD, chartPeriod=CHART_PERIOD)
     # run the pamr algo

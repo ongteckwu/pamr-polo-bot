@@ -142,12 +142,12 @@ class Portfolio(object):
                             self.pairsOnOrder = set()
 
                     if self.isSimulation:
-                        tickers = p.returnTicker()
-                        previousPairAmount
+                        tickers = self.polo.returnTicker()
+                        previousPairAmount = {}
                         for pair in self.pairs:
-                            previousPairAmount = (float(ticker[pair][
-                                                  "lowestAsk"]) + float(ticker[pair]["highestBid"])) / 2 * self.balances[pair]
-                        self.amount = sum(previousPairAmount.values())
+                            previousPairAmount[pair] = (float(tickers[pair][
+                                                  "lowestAsk"]) + float(tickers[pair]["highestBid"])) / 2 * self.balances[pair]
+                        self.amount = sum(previousPairAmount.values()) + self.balances["BTC"]
                         if self.logger["LOG_AMOUNT"]:
                             self.logger.writeToFile("LOG_AMOUNT", str(
                                 self.amount) + "," + str(time()))

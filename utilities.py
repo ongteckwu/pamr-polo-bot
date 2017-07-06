@@ -20,6 +20,7 @@ def cleanNANs(data):
 
     dataLength = len(data)
     for col in data:
+        print(col)
         cleanNANcolumn(data[col], dataLength - 1)
 
     return data
