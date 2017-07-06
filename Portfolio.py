@@ -53,7 +53,7 @@ class Portfolio(object):
         self.isSimulation = isSimulation
         if self.isSimulation:
             self.amount = simulationAmount
-            self.balances = defaultdict(int)
+            self.balances = defaultdict(float)
             self.balances["BTC"] = self.amount
         else:
             self.amount = None
@@ -142,8 +142,12 @@ class Portfolio(object):
                             self.pairsOnOrder = set()
 
                     if self.isSimulation:
-                        previousPairAmount = self.balances
-                        self.amount = sum(self.balances.values())
+                        tickers = p.returnTicker()
+                        previousPairAmount
+                        for pair in self.pairs:
+                            previousPairAmount = (float(ticker[pair][
+                                                  "lowestAsk"]) + float(ticker[pair]["highestBid"])) / 2 * self.balances[pair]
+                        self.amount = sum(previousPairAmount.values())
                         if self.logger["LOG_AMOUNT"]:
                             self.logger.writeToFile("LOG_AMOUNT", str(
                                 self.amount) + "," + str(time()))
@@ -418,12 +422,12 @@ class Portfolio(object):
                     # place bids
                     if self.isSimulation:
                         self.logger.debug(
-                            "{} of {} bought at {} - amt in btc: {}".format(amt, pair, price, price * amt))
+                            "{} of {} sold at {} - amt in btc: {}".format(amt, pair, price, price * amt))
                         if self.logger["LOG_TRANSACTION"]:
                             self.logger.writeToFile("LOG_TRANSACTION", "sell,{},{},{},{},{}".format(
                                 pair, amt, price, price * amt, time()))
                         self.balances["BTC"] += price * amt
-                        self.balances[pair] -= price * amt
+                        self.balances[pair] -= amt
                     else:
                         while retry is not False:
                             retry = False
@@ -526,7 +530,7 @@ class Portfolio(object):
                             self.logger.writeToFile("LOG_TRANSACTION", "buy,{},{},{},{},{}".format(
                                 pair, amt, price, price * amt, time()))
                         self.balances["BTC"] -= price * amt
-                        self.balances[pair] += price * amt
+                        self.balances[pair] += amt
                     else:
                         while retry is not False:
                             retry = False

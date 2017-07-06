@@ -74,7 +74,7 @@ async def main():
                         if LOG.checkFileEmpty("LOG_WEALTH"):
                             LOG.writeToFile("LOG_WEALTH", "wealth, date")
                         LOG.writeToFile("LOG_WEALTH", str(
-                            pamr.wealth) + "," + str(time))
+                            pamr.wealth) + "," + str(time()))
                     print("New weights: {}".format(weights))
                     if LOG["LOG_WEIGHTS"]:
                         if LOG.checkFileEmpty("LOG_WEIGHTS"):
